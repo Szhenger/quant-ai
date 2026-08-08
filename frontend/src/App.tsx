@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuthStore } from "./store/auth";
 import LoginPage from "./pages/LoginPage";
 import MarketsPanel from "./components/MarketsPanel";
@@ -19,9 +19,18 @@ export default function App() {
   const workspaces = useAuthStore((s) => s.workspaces);
   const workspaceId = useAuthStore((s) => s.workspaceId);
   const setWorkspace = useAuthStore((s) => s.setWorkspace);
+  const loadWorkspaces = useAuthStore((s) => s.loadWorkspaces);
   const logout = useAuthStore((s) => s.logout);
 
   const [tab, setTab] = useState<Tab>("markets");
+
+  // After a page refresh the persisted store rehydrates access/workspaceId but not
+  // the workspaces array — reload it so the workspace switcher reappears.
+  useEffect(() => {
+    if (access && workspaces.length === 0) {
+      void loadWorkspaces();
+    }
+  }, [access, workspaces.length, loadWorkspaces]);
 
   if (!access) {
     return <LoginPage />;
@@ -73,7 +82,10 @@ export default function App() {
           </div>
         </header>
 
-        <main className="content">
+        {/* Keying on workspaceId remounts the active panel when the user switches
+            workspace, forcing a fresh fetch and a WebSocket reconnect to the new
+            workspace's channel (panels otherwise fetch only on mount). */}
+        <main className="content" key={workspaceId ?? "none"}>
           {tab === "markets" && <MarketsPanel />}
           {tab === "strategies" && <StrategiesPanel />}
           {tab === "alerts" && <AlertsPanel />}

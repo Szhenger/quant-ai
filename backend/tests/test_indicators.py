@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from marketdata import compute_indicator, evaluate_condition
+from marketdata import compute_indicator, evaluate_condition, validate_params, OPERATORS
 
 
 def test_zscore_value():
@@ -59,3 +59,29 @@ def test_evaluate_condition_none_value_is_false():
 def test_unknown_indicator_raises():
     with pytest.raises(ValueError):
         compute_indicator("NOPE", [1, 2, 3])
+
+
+# --- Param validation (L3) + operators (L2) ---------------------------------
+
+def test_validate_params_fills_defaults():
+    assert validate_params("Z_SCORE", None) == {"window": 20}
+
+
+def test_validate_params_rejects_degenerate_window():
+    with pytest.raises(ValueError):
+        validate_params("Z_SCORE", {"window": 1})  # would produce NaN
+
+
+def test_validate_params_rejects_fast_ge_slow():
+    with pytest.raises(ValueError):
+        validate_params("SMA_CROSS", {"fast": 50, "slow": 20})
+
+
+def test_validate_params_rejects_non_integer():
+    with pytest.raises(ValueError):
+        validate_params("RSI", {"period": "abc"})
+
+
+def test_equality_operator_not_offered():
+    # "==" is a footgun on continuous indicators; it must not be selectable.
+    assert "==" not in OPERATORS

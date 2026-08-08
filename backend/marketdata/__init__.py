@@ -6,6 +6,7 @@ from .indicators import (
     analyze_market,
     evaluate_condition,
     lookback_days,
+    validate_params,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "analyze_market",
     "evaluate_condition",
     "lookback_days",
+    "validate_params",
 ]

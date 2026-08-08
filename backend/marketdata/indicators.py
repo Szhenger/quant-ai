@@ -33,15 +33,52 @@ INDICATOR_SPECS: Dict[str, dict] = {
 }
 
 # Operators available for conditions. Cross operators use the previous value.
+# NOTE: exact float equality ("==") is intentionally NOT offered — a computed
+# indicator (z-score, RSI, MACD, …) essentially never lands on an exact value, so
+# an "==" rule would silently never fire. Use crosses / thresholds instead.
 OPERATORS = {
     "<": "less than",
     ">": "greater than",
     "<=": "at most",
     ">=": "at least",
-    "==": "equal to",
     "cross_above": "crosses above",
     "cross_below": "crosses below",
 }
+
+# Minimum value each per-indicator parameter may take (defends against degenerate
+# configs like window=1, which yields NaN, or fast >= slow on crossovers).
+_PARAM_MINIMUMS = {
+    "Z_SCORE": {"window": 2},
+    "RSI": {"period": 2},
+    "SMA_CROSS": {"fast": 1, "slow": 2},
+    "MACD_HIST": {"fast": 1, "slow": 2, "signal": 1},
+    "PCT_CHANGE": {"window": 1},
+    "VOLATILITY": {"window": 2},
+    "PRICE": {},
+}
+
+
+def validate_params(indicator: str, params: Optional[dict]) -> dict:
+    """Validate + normalise indicator parameters, returning the merged dict.
+
+    Raises ``ValueError`` with a human-readable message on any invalid config.
+    """
+    if indicator not in INDICATOR_SPECS:
+        raise ValueError(f"Unknown indicator: {indicator}")
+    merged = {**INDICATOR_SPECS[indicator]["defaults"], **(params or {})}
+    minimums = _PARAM_MINIMUMS.get(indicator, {})
+    for name, raw in merged.items():
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            raise ValueError(f"Parameter '{name}' must be an integer.")
+        floor = minimums.get(name, 1)
+        if value < floor:
+            raise ValueError(f"Parameter '{name}' must be at least {floor}.")
+        merged[name] = value
+    if indicator in ("SMA_CROSS", "MACD_HIST") and merged["fast"] >= merged["slow"]:
+        raise ValueError("The fast window must be smaller than the slow window.")
+    return merged
 
 
 def lookback_days(indicator: str, params: Optional[dict] = None) -> int:

@@ -1,5 +1,6 @@
 import uuid
 
+from django.core.validators import MinValueValidator
 from django.db import models
 
 from core.models import Workspace
@@ -44,8 +45,14 @@ class Strategy(models.Model):
 
     # Scheduling / lifecycle
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
-    poll_interval_minutes = models.PositiveIntegerField(default=15)
-    cooldown_minutes = models.PositiveIntegerField(default=60)
+    # Floored at 1: a 0-minute poll would re-evaluate every sweep, and a 0-minute
+    # cooldown would remove the only anti-spam guard (an alert every evaluation).
+    poll_interval_minutes = models.PositiveIntegerField(
+        default=15, validators=[MinValueValidator(1)]
+    )
+    cooldown_minutes = models.PositiveIntegerField(
+        default=60, validators=[MinValueValidator(1)]
+    )
 
     last_evaluated_at = models.DateTimeField(null=True, blank=True)
     last_triggered_at = models.DateTimeField(null=True, blank=True)
