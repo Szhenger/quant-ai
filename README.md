@@ -8,9 +8,9 @@ Most software you download is a black box. You run it, it does a thing, and if y
 
 The promise is specific. If you are a **math undergraduate** who has seen
 
-- basic **calculus** (derivatives, a little bit of limits, the idea of an exponential),
+- **basic calculus** (derivatives, a little bit of limits, the idea of an exponential),
 - **linear algebra** (vectors, dot products, means as sums),
-- **elementary discrete probability** (outcomes, expectation, variance, independence),
+- **discrete probability** (outcomes, expectation, variance, independence),
 
 and you have taken something like **[CS50x](https://cs50.harvard.edu/x/)** (you can read code, you know what a function and a loop and an HTTP request are), then by the end of this course you will understand quantitative finance the way a practitioner does: not as a bag of tricks, but as a small number of ideas about **randomness, information, and time**, made precise, made computable, and made safe to run in production.
 
