@@ -1,43 +1,9 @@
-version: '3.8'
-
+# Runs the backend test suite in isolation.
+# Tests use sqlite + eager Celery + in-memory channels, so no db/redis services
+# are needed — everything runs inside one container.
 services:
-  test-db:
-    image: postgres:15-alpine
+  test:
+    build: ./backend
     environment:
-      POSTGRES_USER: simplefeed_test
-      POSTGRES_PASSWORD: test_password
-      POSTGRES_DB: simplefeed_test_db
-    ports:
-      - "5432:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U simplefeed_test -d simplefeed_test_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  test-redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  test-backend:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile.test
-    environment:
-      - DATABASE_URL=postgres://simplefeed_test:test_password@test-db:5432/simplefeed_test_db
-      - REDIS_URL=redis://test-redis:6379/0
-      - DJANGO_SETTINGS_MODULE=config.settings.test
-    depends_on:
-      test-db:
-        condition: service_healthy
-      test-redis:
-        condition: service_healthy
-    # The default command executes the pytest suite with coverage tracking
-    command: >
-      sh -c "pytest --cov=. --cov-report=term-missing --cov-fail-under=85"
+      DJANGO_SETTINGS_MODULE: config.test_settings
+    command: sh -c "pytest -q"

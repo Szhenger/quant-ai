@@ -1,34 +1,34 @@
 # ==========================================
-# SimpleFeed++ Enterprise Dependencies
-# Runtime Target: Python 3.14+
+# QuantAI backend dependencies
 # ==========================================
 
-# --- Core API Gateway (Stateless Controller) ---
-Django>=5.0.0                  # Core web framework
-djangorestframework>=3.15.0    # REST API architecture
-django-cors-headers>=4.3.1     # Cross-Origin Resource Sharing for the React SPA
+# --- Web / API gateway ---
+Django>=5.0,<5.2
+djangorestframework>=3.15
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.3
+drf-spectacular>=0.27
 
-# --- Authentication & Contracts ---
-djangorestframework-simplejwt>=5.3.1 # Stateless JWT authentication
-drf-spectacular>=0.27.1              # OpenAPI v3 schema generation for TypeScript
+# --- Real-time alert delivery (WebSockets) ---
+channels>=4.1
+channels-redis>=4.2
+daphne>=4.1
 
-# --- Distributed Ingestion Engine (Workers) ---
-celery>=5.3.6                  # Distributed task queue mechanism
-redis>=5.0.1                   # In-memory broker and result backend
+# --- Strategy evaluation fleet ---
+celery>=5.3
+redis>=5.0
 
-# --- Advanced Data Layer & AI Pipelines ---
-psycopg[binary]>=3.1.18        # Modern, high-performance PostgreSQL 16 adapter
-pgvector>=0.2.5                # Django ORM integration for vector similarity search
-sentence-transformers>=2.5.1   # Local 768-d embedding generation for axiomatic triage
+# --- Database ---
+psycopg[binary]>=3.1
 
-# --- Native Kernel Interop (C++20 FFI) ---
-grpcio>=1.62.0                 # High-performance RPC framework
-grpcio-tools>=1.62.0           # Protobuf compiler for strictly typed memory passing
+# --- Quant / market data ---
+numpy>=1.26
+yfinance>=0.2.40
+requests>=2.31
 
-# --- Application Servers (Production/Gateway) ---
-gunicorn>=21.2.0               # WSGI HTTP Server for synchronous fallback
-uvicorn[standard]>=0.28.0      # ASGI Server for max concurrency and non-blocking I/O
+# --- AI contextualisation ---
+anthropic>=0.40
 
-# --- Code Governance & Defensive Testing ---
-pytest>=8.1.1                  # Defensive fuzzing and unit testing core
-pytest-django>=4.8.0           # Pytest integration with Django's isolated test DBs
+# --- Tests ---
+pytest>=8.1
+pytest-django>=4.8

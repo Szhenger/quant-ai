@@ -1,80 +1,41 @@
-# SimpleFeed++ Backend Architecture Documentation
+# QuantAI — Backend
 
-**Location:** `backend/`  
-**Stack:** Python 3.14+, Django REST Framework, Celery, PostgreSQL 16, Redis
+Django 5 + DRF + Channels + Celery. Serves the API, the live-alert WebSocket, and the
+strategy-evaluation worker fleet.
 
-This document outlines the architectural constraints for the SimpleFeed++ backend. In this system, the backend is not a monolithic controller, but a **stateless API gateway** and a **distributed orchestration layer** for high-throughput feed synthesis.
+## Apps / packages
+- `core` — `Workspace` (tenant) + `WatchedTicker`, JWT registration, workspace resolver.
+- `marketdata` — price providers (`yfinance` + deterministic synthetic fallback) and the
+  numpy indicator library (`compute_indicator`, `evaluate_condition`, `analyze_market`).
+- `ai` — `ClaudeClient.assess` (Anthropic), degrades gracefully with no API key.
+- `strategies` — `Strategy` + `Alert` models, CRUD + graph-deploy + market-analysis API,
+  the Celery tasks (`sweep_due_strategies`, `evaluate_strategy`), alert `delivery`, and the
+  `AlertConsumer` WebSocket (+ JWT WS auth in `ws_auth.py`).
+- `config` — settings, URLs, ASGI (Channels routing), Celery app.
 
----
+## Run
 
-## 🏗️ Architectural Axioms
-
-The backend is engineered for horizontal scale and fault isolation. The core philosophy is **I/O-Bound Decoupling**: no HTTP request ever triggers a feed fetch or heavy parsing.
-
-1. **Strict Statelessness:** The Django REST API stores no user state in memory. All state resides in the PostgreSQL cluster.
-2. **Deterministic Task Execution:** The Celery fleet ensures that feed ingestion is idempotent, fault-tolerant, and atomic.
-3. **Database-as-the-Source-of-Truth:** All security (RLS), partitioning, and vector similarity logic are defined in PostgreSQL DDLs, not Python application code.
-
----
-
-## ⚙️ Core Subsystems
-
-### 1. Stateless API Gateway (Django REST Framework)
-The gateway is solely responsible for authentication (JWT), request routing, and mapping JSON payloads to SQL queries.
-* **OpenAPI/Swagger:** All endpoints are strictly typed, serving as the source of truth for the frontend's TypeScript interface generation.
-* **RLS Injection:** The API middleware automatically injects the current `workspace_id` into the connection session, ensuring the application cannot "see" data outside the requested tenant.
-
-### 2. Distributed Ingestion Engine (Celery + Redis)
-Feed fetching is decoupled from the user-facing request cycle via a message-passing architecture.
-* **Decaying Polling Loops:** Rather than `cron` jobs, SimpleFeed++ utilizes an exponential backoff algorithm to tune the polling frequency per-feed based on the density of "axiomatic" updates.
-* **Distributed Lock Manager:** We use Redis `Redlock` to ensure that even with thousands of worker containers, a single feed URI is processed by at most one worker at any given time.
-
-### 3. Native Processing Kernel (C++20 + FFI)
-Python's `feedparser` is unsuitable for massive syndication streams. We offload tokenization to a native kernel.
-* **SIMD Optimization:** The kernel uses AVX-512 intrinsic functions to scan XML character buffers.
-* **Zero-Copy Serialization:** Data is returned from the C++ kernel to the Python worker via low-latency memory-mapped buffers (gRPC/FFI).
-
-### 4. Vectorized Triage Pipeline (pgvector)
-Once ingested, content is subjected to AI-driven filtering.
-* **Embedding Layer:** Articles are pushed to an embedding model (e.g., Sentence-Transformers).
-* **Cosine Distance Thresholding:** The result is queried via `pgvector` against the user's workspace centroid. Only content with a similarity score $	au \ge 0.72$ is committed to the main `feed_item` table.
-
----
-
-## 📂 Directory Structure
-
-```text
-backend/
-├── ai/                  # Vector models and similarity logic
-├── config/              # Django settings, ASGI/WSGI, API routing
-├── db/                  # Raw SQL for partitioning and Row-Level Security
-├── feed/                # Core Business Logic (Models, Views)
-├── workers/             # Celery tasks and polling decay logic
-├── requirements.txt     # Python dependencies
-└── manage.py            # Entry point for migrations and management
-```
-
----
-
-## 🔒 Security & Governance
-
-1. **Row-Level Security (RLS):** Policies are enforced at the database layer. Even a compromised API key cannot query records from another `workspace_id`.
-2. **Strict Code Freeze:** The `/db/` and `/kernel/` directories are subject to a strict code freeze. Changes require an architectural review.
-3. **Integration Testing:** All new API endpoints must be accompanied by defensive integration tests in `feed/tests/` that verify the RLS policies in an isolated database sandbox.
-
----
-
-## 🚀 Deployment & Operations
-
-### Database Migrations
 ```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # optional; sensible defaults otherwise
 python manage.py migrate
-# Apply partitioning DDL
-psql -d simplefeed -f db/ddl/0001_partitioning.sql
+daphne -b 0.0.0.0 -p 8000 config.asgi:application   # HTTP + WebSockets
+
+# scheduled evaluation (separate shells):
+celery -A config worker -l info
+celery -A config beat -l info
 ```
 
-### Distributed Worker Lifecycle
+Requires Python 3.10+ (Django 5). Postgres + Redis for full operation; the test suite
+needs neither.
+
+## Test
+
 ```bash
-# Start the Celery worker fleet
-celery -A backend worker --loglevel=info --concurrency=8
+pytest        # config.test_settings: sqlite, eager Celery, in-memory Channels, synthetic data
 ```
+
+## Key environment variables
+See `.env.example`. Notably: `MARKETDATA_PROVIDER` (`auto`/`yfinance`/`synthetic`),
+`ANTHROPIC_API_KEY` (enables the AI layer), `REDIS_URL`, and the `DB_*` connection vars.
