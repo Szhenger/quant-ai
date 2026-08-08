@@ -88,3 +88,52 @@ def test_market_analysis(auth_client):
     assert resp.data["ticker"] == "AAPL"
     assert len(resp.data["closes"]) > 20
     assert "Z_SCORE" in resp.data["indicators"]
+
+
+def _strategy_payload(**overrides):
+    payload = {
+        "name": "s", "ticker": "AAPL", "indicator": "Z_SCORE",
+        "params": {"window": 20}, "operator": "<", "threshold": -2.0,
+        "ai_enabled": False,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_create_fills_default_params(auth_client, workspace):
+    resp = auth_client.post("/api/v1/strategies/",
+                            _strategy_payload(params={}), format="json")
+    assert resp.status_code == 201, resp.content
+    assert Strategy.objects.get(workspace=workspace).params == {"window": 20}
+
+
+def test_reject_degenerate_window(auth_client):
+    resp = auth_client.post("/api/v1/strategies/",
+                            _strategy_payload(params={"window": 1}), format="json")
+    assert resp.status_code == 400
+    assert "params" in resp.data
+
+
+def test_reject_fast_ge_slow(auth_client):
+    resp = auth_client.post("/api/v1/strategies/", _strategy_payload(
+        indicator="SMA_CROSS", params={"fast": 50, "slow": 20}), format="json")
+    assert resp.status_code == 400
+
+
+def test_reject_zero_cooldown(auth_client):
+    resp = auth_client.post("/api/v1/strategies/",
+                            _strategy_payload(cooldown_minutes=0), format="json")
+    assert resp.status_code == 400
+
+
+def test_reject_equality_operator(auth_client):
+    resp = auth_client.post("/api/v1/strategies/",
+                            _strategy_payload(operator="=="), format="json")
+    assert resp.status_code == 400
+
+
+def test_indicator_catalog_excludes_equality(auth_client):
+    resp = auth_client.get("/api/v1/indicators/")
+    ops = {o["key"] for o in resp.data["operators"]}
+    assert "==" not in ops
+    assert {"<", ">", "cross_above"}.issubset(ops)

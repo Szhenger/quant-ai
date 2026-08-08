@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from marketdata import INDICATOR_SPECS, OPERATORS
+from marketdata import INDICATOR_SPECS, OPERATORS, validate_params
 from .models import Strategy, Alert
 
 
@@ -30,6 +30,18 @@ class StrategySerializer(serializers.ModelSerializer):
         if value not in OPERATORS:
             raise serializers.ValidationError(f"Unknown operator: {value}")
         return value
+
+    def validate(self, attrs):
+        # Validate the indicator params together with the indicator (handles both
+        # full creates and partial updates by falling back to the instance).
+        indicator = attrs.get("indicator") or getattr(self.instance, "indicator", None)
+        params = attrs.get("params", getattr(self.instance, "params", None))
+        if indicator:
+            try:
+                attrs["params"] = validate_params(indicator, params)
+            except ValueError as exc:
+                raise serializers.ValidationError({"params": str(exc)})
+        return attrs
 
 
 class AlertSerializer(serializers.ModelSerializer):

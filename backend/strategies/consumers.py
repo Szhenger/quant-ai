@@ -32,4 +32,11 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
 
     @database_sync_to_async
     def _owns(self, user, workspace_id):
-        return Workspace.objects.filter(id=workspace_id, owner=user).exists()
+        # A malformed (non-UUID) workspace_id in the URL raises ValidationError on
+        # the query; treat that as "not owned" and close cleanly rather than error.
+        from django.core.exceptions import ValidationError
+
+        try:
+            return Workspace.objects.filter(id=workspace_id, owner=user).exists()
+        except (ValidationError, ValueError):
+            return False
