@@ -33,6 +33,10 @@ class PriceSeries:
     ticker: str
     closes: List[float] = field(default_factory=list)
     dates: List[str] = field(default_factory=list)
+    # True when these prices are synthetic (a deterministic random walk), NOT real
+    # market data. The flag travels with the data so no caller can mistake a
+    # degraded fallback for a real quote.
+    synthetic: bool = False
 
     def __len__(self) -> int:
         return len(self.closes)
@@ -75,7 +79,7 @@ class SyntheticProvider(BaseProvider):
             closes.append(round(price, 2))
         today = dt.date.today()
         dates = [(today - dt.timedelta(days=days - 1 - i)).isoformat() for i in range(days)]
-        return PriceSeries(ticker=ticker.upper(), closes=closes, dates=dates)
+        return PriceSeries(ticker=ticker.upper(), closes=closes, dates=dates, synthetic=True)
 
     def news(self, ticker: str, limit: int = 5) -> List[dict]:
         t = ticker.upper()
@@ -131,11 +135,22 @@ class YFinanceProvider(BaseProvider):
 # Resilience wrapper
 # --------------------------------------------------------------------------- #
 class ResilientProvider(BaseProvider):
-    """Try the primary provider; on any failure fall back to synthetic data."""
+    """Try the primary provider; on any failure fall back to synthetic data.
+
+    Honesty contract: a degraded fallback is never disguised as real data.
+    ``history`` returns the fallback's ``PriceSeries`` verbatim, so its
+    ``synthetic=True`` flag reaches the caller; ``news`` only substitutes
+    synthetic (``source="synthetic"``) headlines when the primary actually
+    *fails* — an empty-but-successful real result is returned as-is rather than
+    fabricated over.
+    """
 
     def __init__(self, primary: BaseProvider, fallback: BaseProvider):
         self.primary = primary
         self.fallback = fallback
+        # ``name`` records which primary is configured. It is NOT a claim about a
+        # given call's data source — that truth lives on ``PriceSeries.synthetic``
+        # and on each news item's ``source``.
         self.name = primary.name
 
     def history(self, ticker: str, days: int = 180) -> PriceSeries:
@@ -148,10 +163,24 @@ class ResilientProvider(BaseProvider):
 
     def news(self, ticker: str, limit: int = 5) -> List[dict]:
         try:
-            news = self.primary.news(ticker, limit)
-            return news or self.fallback.news(ticker, limit)
+            # Return the real result even when empty — do NOT fabricate headlines
+            # over a successful "no news" response.
+            return self.primary.news(ticker, limit)
         except Exception:  # noqa: BLE001
             return self.fallback.news(ticker, limit)
+
+
+def _maybe_cache(provider: BaseProvider) -> BaseProvider:
+    """Wrap a provider in the local Parquet/DuckDB bar cache when it is both
+    enabled (``MARKETDATA_CACHE``) and available (DuckDB importable)."""
+    if not getattr(settings, "MARKETDATA_CACHE", False):
+        return provider
+    from .barstore import CachingProvider, bar_store_available
+
+    if not bar_store_available():
+        logger.info("MARKETDATA_CACHE is on but duckdb is not installed; skipping cache.")
+        return provider
+    return CachingProvider(provider)
 
 
 def get_provider() -> BaseProvider:
@@ -160,11 +189,11 @@ def get_provider() -> BaseProvider:
     if mode == "synthetic":
         return synthetic
     if mode == "yfinance":
-        return ResilientProvider(YFinanceProvider(), synthetic)
+        return _maybe_cache(ResilientProvider(YFinanceProvider(), synthetic))
     # auto
     try:
         import yfinance  # noqa: F401
-        return ResilientProvider(YFinanceProvider(), synthetic)
+        return _maybe_cache(ResilientProvider(YFinanceProvider(), synthetic))
     except ImportError:
         logger.info("yfinance not installed; using synthetic market data.")
         return synthetic

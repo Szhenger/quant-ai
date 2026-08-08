@@ -46,6 +46,7 @@ export interface MarketIndicatorValue {
 export interface MarketAnalysis {
   ticker: string;
   provider: string;
+  synthetic: boolean;
   dates: string[];
   closes: number[];
   latest_price: number;
@@ -62,6 +63,9 @@ export interface Strategy {
   params: Record<string, unknown>;
   operator: string;
   threshold: number;
+  // Composite mode: an AND/OR condition tree. Authoritative when present; the
+  // flat fields above are then a representative leaf for display.
+  condition: unknown | null;
   ai_enabled: boolean;
   ai_prompt: string;
   notify_in_app: boolean;
@@ -83,6 +87,26 @@ export interface EvaluateResult {
   [key: string]: unknown;
 }
 
+export interface ReplayFire {
+  index: number;
+  date: string | null;
+  metric: number | null;
+}
+
+export interface ReplayResult {
+  strategy_id: string;
+  ticker: string;
+  condition: string;
+  provider: string;
+  synthetic: boolean;
+  cooldown_bars: number;
+  bars: number;
+  fire_count: number;
+  fires: ReplayFire[];
+  dates: string[];
+  closes: number[];
+}
+
 export interface Alert {
   id: string;
   strategy: string | null;
@@ -95,6 +119,10 @@ export interface Alert {
   ai_used: boolean;
   ai_rationale: string | null;
   message: string;
+  // The evaluated condition tree that fired this alert (reproducible audit row).
+  condition_detail: unknown;
+  // True when this alert was computed from synthetic fallback data, not real market data.
+  data_synthetic: boolean;
   delivery: Record<string, unknown> | string | null;
   is_read: boolean;
   created_at: string;

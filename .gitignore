@@ -16,6 +16,9 @@ node_modules/
 dist/
 .vite/
 
+# Local market-data bar cache (Parquet files)
+.marketdata_cache/
+
 # OS / editor
 .DS_Store
 *.log

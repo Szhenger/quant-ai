@@ -25,6 +25,9 @@ psycopg[binary]>=3.1
 numpy>=1.26
 yfinance>=0.2.40
 requests>=2.31
+# Optional local bar cache (Parquet via DuckDB); the pipeline degrades to a no-op
+# without it, but it is included so the cache works out of the box in production.
+duckdb>=0.10
 
 # --- AI contextualisation ---
 anthropic>=0.40

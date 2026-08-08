@@ -28,6 +28,10 @@ INDICATOR_SPECS: Dict[str, dict] = {
                    "help": "Percent change of the close over N bars."},
     "VOLATILITY": {"label": "Volatility (annualized)", "unit": "%", "defaults": {"window": 20},
                    "help": "Annualized standard deviation of daily returns."},
+    "SMA": {"label": "SMA", "unit": "$", "defaults": {"window": 20},
+            "help": "Simple moving average of the close over N bars."},
+    "EMA": {"label": "EMA", "unit": "$", "defaults": {"window": 20},
+            "help": "Exponential moving average of the close over N bars."},
     "PRICE": {"label": "Price", "unit": "$", "defaults": {},
               "help": "The latest closing price."},
 }
@@ -54,6 +58,8 @@ _PARAM_MINIMUMS = {
     "MACD_HIST": {"fast": 1, "slow": 2, "signal": 1},
     "PCT_CHANGE": {"window": 1},
     "VOLATILITY": {"window": 2},
+    "SMA": {"window": 1},
+    "EMA": {"window": 1},
     "PRICE": {},
 }
 
@@ -192,6 +198,8 @@ _BUILDERS = {
     "MACD_HIST": lambda c, p: _macd_hist_series(c, int(p["fast"]), int(p["slow"]), int(p["signal"])),
     "PCT_CHANGE": lambda c, p: _pct_change_series(c, int(p["window"])),
     "VOLATILITY": lambda c, p: _volatility_series(c, int(p["window"])),
+    "SMA": lambda c, p: _sma(c, int(p["window"])),
+    "EMA": lambda c, p: [float(x) for x in _ema(c, int(p["window"]))],
     "PRICE": lambda c, p: [float(x) for x in c],
 }
 
@@ -273,7 +281,10 @@ def analyze_market(ticker: str, days: int = 180) -> dict:
             indicators[key] = None
     return {
         "ticker": series.ticker,
-        "provider": provider.name,
+        # Report the TRUE source of these bars, not the configured primary: if the
+        # provider degraded to synthetic data, say "synthetic", never "yfinance".
+        "provider": "synthetic" if series.synthetic else provider.name,
+        "synthetic": series.synthetic,
         "dates": series.dates,
         "closes": closes,
         "latest_price": series.latest,
