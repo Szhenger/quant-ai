@@ -1,0 +1,61 @@
+import math
+
+import pytest
+
+from marketdata import compute_indicator, evaluate_condition
+
+
+def test_zscore_value():
+    closes = [10, 10, 10, 10, 12]
+    result = compute_indicator("Z_SCORE", closes, {"window": 5})
+    # mean=10.4, sample std=0.8944 -> z = 1.6/0.8944 ≈ 1.789
+    assert result["value"] == pytest.approx(1.789, abs=1e-3)
+
+
+def test_zscore_flat_series_is_zero():
+    result = compute_indicator("Z_SCORE", [5, 5, 5, 5, 5], {"window": 5})
+    assert result["value"] == 0.0
+
+
+def test_rsi_bounds_and_uptrend():
+    closes = list(range(1, 40))  # strictly increasing
+    result = compute_indicator("RSI", closes, {"period": 14})
+    assert result["value"] == pytest.approx(100.0, abs=1e-6)
+
+
+def test_pct_change():
+    result = compute_indicator("PCT_CHANGE", [100, 110], {"window": 1})
+    assert result["value"] == pytest.approx(10.0)
+
+
+def test_price_indicator_returns_last_close():
+    result = compute_indicator("PRICE", [1, 2, 3.5])
+    assert result["value"] == 3.5
+
+
+def test_insufficient_history_returns_none():
+    result = compute_indicator("Z_SCORE", [10], {"window": 20})
+    assert result["value"] is None
+
+
+@pytest.mark.parametrize("op,value,prev,thr,expected", [
+    ("<", -2.5, None, -2.0, True),
+    ("<", -1.0, None, -2.0, False),
+    (">", 3.0, None, 2.0, True),
+    (">=", 2.0, None, 2.0, True),
+    ("cross_above", 1.0, -1.0, 0.0, True),
+    ("cross_above", 1.0, 0.5, 0.0, False),
+    ("cross_below", -1.0, 1.0, 0.0, True),
+    ("cross_below", 1.0, 2.0, 0.0, False),
+])
+def test_evaluate_condition(op, value, prev, thr, expected):
+    assert evaluate_condition(op, value, prev, thr) is expected
+
+
+def test_evaluate_condition_none_value_is_false():
+    assert evaluate_condition("<", None, None, 0.0) is False
+
+
+def test_unknown_indicator_raises():
+    with pytest.raises(ValueError):
+        compute_indicator("NOPE", [1, 2, 3])

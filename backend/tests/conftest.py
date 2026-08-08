@@ -1,14 +1,38 @@
 import pytest
-from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from rest_framework.test import APIClient
 
-@pytest.fixture(scope='session', autouse=True)
-def configure_integration_settings():
-    """
-    Forces Celery to run tasks eagerly (synchronously inline) 
-    while preserving the full middleware and signal propagation layers.
-    """
-    settings.CELERY_TASK_ALWAYS_EAGER = True
-    settings.CELERY_TASK_EAGER_PROPAGATES = True
-    
-    # Ensure our safety threshold constant is strictly fixed for predictable matching
-    settings.AI_TRIAGE_THRESHOLD = 0.72
+from core.models import Workspace
+
+
+@pytest.fixture(autouse=True)
+def clear_cache():
+    """The eval lock lives in the (process-wide LocMem) cache in tests; clear it
+    between tests so a lock can never leak from one test into the next."""
+    cache.clear()
+    yield
+    cache.clear()
+
+
+@pytest.fixture
+def user(db):
+    return get_user_model().objects.create_user(
+        username="trader", email="trader@example.com", password="pw12345!"
+    )
+
+
+@pytest.fixture
+def workspace(user):
+    return Workspace.objects.create(name="Desk", owner=user)
+
+
+@pytest.fixture
+def auth_client(user, workspace):
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    client = APIClient()
+    token = RefreshToken.for_user(user).access_token
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+    client.defaults["HTTP_X_WORKSPACE_ID"] = str(workspace.id)
+    return client

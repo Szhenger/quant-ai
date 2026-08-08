@@ -1,18 +1,16 @@
-version: '3.8'
-
 services:
   db:
-    image: pgvector/pgvector:pg16
+    image: postgres:16-alpine
     environment:
-      POSTGRES_USER: simplefeed_app
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: simplefeed
+      POSTGRES_USER: quantai
+      POSTGRES_PASSWORD: quantai
+      POSTGRES_DB: quantai
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - quantai_pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U simplefeed_app -d simplefeed"]
+      test: ["CMD-SHELL", "pg_isready -U quantai -d quantai"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -22,27 +20,20 @@ services:
     ports:
       - "6379:6379"
 
-  kernel:
-    build: 
-      context: ./kernel
-      dockerfile: Dockerfile
-    ports:
-      - "50051:50051"
-    # This represents the compiled C++20 gRPC binary
-
   api:
-    build: 
-      context: ./backend
-      dockerfile: Dockerfile
-    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --workers 4
+    build: ./backend
+    command: sh -c "python manage.py migrate && daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     volumes:
       - ./backend:/app
     ports:
       - "8000:8000"
-    environment:
-      - DB_HOST=db
-      - REDIS_URL=redis://redis:6379/0
-      - KERNEL_GRPC_TARGET=kernel:50051
+    environment: &backend_env
+      DJANGO_DEBUG: "True"
+      DJANGO_SECRET_KEY: dev-insecure-key-change-in-production
+      DB_HOST: db
+      REDIS_URL: redis://redis:6379/0
+      MARKETDATA_PROVIDER: ${MARKETDATA_PROVIDER:-auto}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy
@@ -50,38 +41,23 @@ services:
         condition: service_started
 
   worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: celery -A config worker --loglevel=info --concurrency=4
+    build: ./backend
+    command: celery -A config worker --loglevel=info
     volumes:
       - ./backend:/app
-    environment:
-      - DB_HOST=db
-      - REDIS_URL=redis://redis:6379/0
-      - KERNEL_GRPC_TARGET=kernel:50051
+    environment: *backend_env
     depends_on:
       - api
       - redis
-      - kernel
-    deploy:
-      resources:
-        reservations:
-          # Required for the Sentence-Transformers AI triage
-          memory: 2G 
 
   beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    build: ./backend
     command: celery -A config beat --loglevel=info
     volumes:
       - ./backend:/app
-    environment:
-      - DB_HOST=db
-      - REDIS_URL=redis://redis:6379/0
+    environment: *backend_env
     depends_on:
       - worker
 
 volumes:
-  postgres_data:
+  quantai_pg:

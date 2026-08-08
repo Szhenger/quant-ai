@@ -1,8 +1,19 @@
 import os
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+
 from django.core.asgi import get_asgi_application
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+# Initialise Django before importing anything that touches the app registry.
+django_asgi_app = get_asgi_application()
 
-# ASGI enables non-blocking request handling if we later introduce 
-# WebSockets for real-time feed triage updates in the frontend.
-application = get_asgi_application()
+from channels.routing import ProtocolTypeRouter, URLRouter  # noqa: E402
+from strategies.ws_auth import JWTAuthMiddleware  # noqa: E402
+from strategies.routing import websocket_urlpatterns  # noqa: E402
+
+application = ProtocolTypeRouter(
+    {
+        "http": django_asgi_app,
+        "websocket": JWTAuthMiddleware(URLRouter(websocket_urlpatterns)),
+    }
+)

@@ -1,24 +1,3 @@
-# --- Core Frameworks ---
-Django>=5.0
-djangorestframework
-gunicorn
-python-dotenv
-
-# --- Distributed Processing (Celery + Redis) ---
-celery[redis]
-redis
-
-# --- Database & Storage ---
-# Use the modern v3 adapter for PostgreSQL 16+
-psycopg[binary]
-dj_database_url
-
-# --- AI & Vector Triage Pipeline ---
-# Required for generating 768-d embeddings for the Triage pipeline
-sentence-transformers
-torch
-numpy
-
-# --- Native Interface (Optional) ---
-# If calling C++ binaries via Python, these may be needed
-cffi
+# QuantAI backend dependencies live in backend/requirements.txt.
+# This root file installs them for tooling that expects a top-level requirements.txt.
+-r backend/requirements.txt

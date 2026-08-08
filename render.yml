@@ -1,70 +1,108 @@
 services:
-  # ── Frontend (Static Site) ───────────────────────────────────────────────────
-  - type: static
-    name: simplefeed-frontend
-    buildCommand: "npm install && npm run build"
-    publishPath: "frontend/dist" # Adjust if your Vite config differs
-    staticPublishPath: "./"
-
-  # ── Web (Django API) ─────────────────────────────────────────────────────────
+  # ── API (Django ASGI: HTTP + WebSockets via Daphne) ──────────────────────────
   - type: web
-    name: simplefeed-web
-    env: python
+    name: quantai-api
+    runtime: python
+    rootDir: backend
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
-    startCommand: "gunicorn config.wsgi:application --bind 0.0.0.0:10000"
+    startCommand: "python manage.py migrate && daphne -b 0.0.0.0 -p $PORT config.asgi:application"
     envVars:
       - key: DJANGO_DEBUG
-        value: "false"
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: ".onrender.com,localhost,127.0.0.1"
       - key: DJANGO_SECRET_KEY
         generateValue: true
+      - key: MARKETDATA_PROVIDER
+        value: auto
+      - key: ANTHROPIC_API_KEY
+        sync: false
       - key: REDIS_URL
         fromService:
           type: redis
-          name: simplefeed-redis
+          name: quantai-redis
           property: connectionString
-      # ... [Keep your existing Shard DB EnvVars here] ...
+      - key: DB_HOST
+        fromDatabase: { name: quantai-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: quantai-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: quantai-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: quantai-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: quantai-db, property: password }
 
-  # ── Background Worker (Celery Fleet) ─────────────────────────────────────────
+  # ── Strategy evaluation worker (Celery) ──────────────────────────────────────
   - type: worker
-    name: simplefeed-worker
-    env: python
+    name: quantai-worker
+    runtime: python
+    rootDir: backend
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A config worker --loglevel=info"
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: MARKETDATA_PROVIDER
+        value: auto
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: quantai-redis
+          property: connectionString
+      - key: DB_HOST
+        fromDatabase: { name: quantai-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: quantai-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: quantai-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: quantai-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: quantai-db, property: password }
+
+  # ── Beat scheduler (enqueues due strategies every minute) ────────────────────
+  - type: worker
+    name: quantai-beat
+    runtime: python
+    rootDir: backend
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "celery -A config beat --loglevel=info"
     envVars:
       - key: DJANGO_SECRET_KEY
         sync: false
       - key: REDIS_URL
         fromService:
           type: redis
-          name: simplefeed-redis
+          name: quantai-redis
           property: connectionString
-      - key: REPLICA_READ_PROBABILITY
-        value: "0.0" 
-      # ... [Keep your existing Shard DB EnvVars here] ...
+      - key: DB_HOST
+        fromDatabase: { name: quantai-db, property: host }
+      - key: DB_PORT
+        fromDatabase: { name: quantai-db, property: port }
+      - key: DB_NAME
+        fromDatabase: { name: quantai-db, property: database }
+      - key: DB_USER
+        fromDatabase: { name: quantai-db, property: user }
+      - key: DB_PASSWORD
+        fromDatabase: { name: quantai-db, property: password }
 
-  # ── Redis (Broker & Lock Manager) ──────────────────────────────────────────
+  # ── Redis (Celery broker + Channels layer) ───────────────────────────────────
   - type: redis
-    name: simplefeed-redis
+    name: quantai-redis
     plan: starter
-    maxmemoryPolicy: allkeys-lru
+    maxmemoryPolicy: noeviction
+
+  # ── Frontend (static SPA) ────────────────────────────────────────────────────
+  - type: web
+    name: quantai-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: dist
 
 databases:
-  # Default — Django internals only (auth, sessions, admin, contenttypes)
-  - name: simplefeed-db-default
-    plan: starter
-
-  # Shard primaries
-  - name: simplefeed-db-shard-0
-    plan: starter
-  - name: simplefeed-db-shard-1
-    plan: starter
-  - name: simplefeed-db-shard-2
-    plan: starter
-
-  # Read replicas
-  - name: simplefeed-db-shard-0-replica
-    plan: starter
-  - name: simplefeed-db-shard-1-replica
-    plan: starter
-  - name: simplefeed-db-shard-2-replica
+  - name: quantai-db
     plan: starter
