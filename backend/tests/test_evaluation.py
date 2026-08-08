@@ -65,6 +65,55 @@ def test_ai_disabled_delivery_recorded(workspace):
     assert "in_app" in alert.delivery
 
 
+# --- Composite conditions --------------------------------------------------
+
+def _cmp(indicator, op, right):
+    return {"type": "compare", "left": {"indicator": indicator}, "operator": op, "right": right}
+
+
+def test_composite_and_fires_and_records_audit_detail(workspace):
+    # Both branches hold for synthetic data (price is always positive).
+    condition = {"type": "group", "op": "AND", "children": [
+        _cmp("PRICE", ">", {"value": 0}),
+        _cmp("PRICE", ">=", {"value": 0}),
+    ]}
+    s = _strategy(workspace, condition=condition)
+    assert evaluate_strategy(str(s.id))["status"] == "alerted"
+    alert = Alert.objects.get(workspace=workspace)
+    # The evaluated tree is persisted with the alert as a reproducible audit row.
+    assert alert.condition_detail["type"] == "group"
+    assert alert.condition_detail["result"] is True
+    assert len(alert.condition_detail["children"]) == 2
+
+
+def test_composite_or_fires_on_a_single_true_branch(workspace):
+    condition = {"type": "group", "op": "OR", "children": [
+        _cmp("PRICE", ">", {"value": 1e12}),   # false
+        _cmp("PRICE", ">", {"value": 0}),       # true
+    ]}
+    s = _strategy(workspace, condition=condition)
+    assert evaluate_strategy(str(s.id))["status"] == "alerted"
+
+
+def test_alert_owns_up_to_synthetic_data(workspace):
+    # Tests run on the synthetic provider, so every alert must be flagged honest.
+    s = _strategy(workspace)
+    evaluate_strategy(str(s.id))
+    alert = Alert.objects.get(workspace=workspace)
+    assert alert.data_synthetic is True
+    assert alert.message.startswith("[SYNTHETIC DATA]")
+
+
+def test_composite_and_not_met_creates_no_alert(workspace):
+    condition = {"type": "group", "op": "AND", "children": [
+        _cmp("PRICE", ">", {"value": 0}),       # true
+        _cmp("PRICE", ">", {"value": 1e12}),    # false -> AND fails
+    ]}
+    s = _strategy(workspace, condition=condition)
+    assert evaluate_strategy(str(s.id))["status"] == "quant_not_met"
+    assert Alert.objects.count() == 0
+
+
 # --- Sequential-safety guarantees (S1–S3) ----------------------------------
 
 def test_lock_prevents_concurrent_evaluation(workspace):

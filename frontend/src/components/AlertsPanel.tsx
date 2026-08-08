@@ -103,6 +103,11 @@ export default function AlertsPanel() {
               <div className="alert-top">
                 <span className="alert-ticker">{a.ticker}</span>
                 {a.ai_used && <span className="badge ai">AI</span>}
+                {a.data_synthetic && (
+                  <span className="badge synthetic" title="Computed from synthetic fallback data, not real market data">
+                    SYNTHETIC
+                  </span>
+                )}
                 {!a.is_read && <span className="badge new">NEW</span>}
                 <span className="alert-time muted">{formatDate(a.created_at)}</span>
               </div>

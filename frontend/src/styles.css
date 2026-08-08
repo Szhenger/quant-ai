@@ -475,6 +475,22 @@ textarea {
   background: rgba(79, 140, 255, 0.2);
   color: var(--accent);
 }
+.badge.synthetic {
+  background: rgba(255, 176, 32, 0.18);
+  color: #d99a1f;
+}
+.replay-row td {
+  background: var(--bg-2);
+}
+.replay-summary {
+  padding: 4px 2px;
+}
+.replay-head {
+  margin-bottom: 4px;
+}
+.replay-fires {
+  word-break: break-word;
+}
 
 /* ---------- Forms ---------- */
 .strategy-form {
@@ -628,6 +644,9 @@ textarea {
 }
 .rf-node.ai {
   border-color: rgba(110, 231, 183, 0.5);
+}
+.rf-node.logic {
+  border-color: rgba(196, 152, 255, 0.6);
 }
 .rf-node-title {
   font-weight: 700;

@@ -27,10 +27,10 @@ from django.utils import timezone
 from ai import ClaudeClient, AlertVerdict
 from marketdata import (
     get_provider,
-    compute_indicator,
-    evaluate_condition,
-    lookback_days,
-    OPERATORS,
+    evaluate_condition_tree,
+    condition_lookback_days,
+    describe_tree,
+    primary_metric,
 )
 from .models import Strategy, Alert
 from .delivery import deliver_alert
@@ -93,6 +93,8 @@ def _persist_eval(strategy: Strategy, value, now, error: str = ""):
     strategy.save(update_fields=["last_metric_value", "last_evaluated_at", "last_error"])
 
 
+
+
 def _run_evaluation(strategy_id: str):
     try:
         strategy = Strategy.objects.get(id=strategy_id)
@@ -101,15 +103,15 @@ def _run_evaluation(strategy_id: str):
 
     now = timezone.now()
     try:
+        tree = strategy.condition_tree()
         provider = get_provider()
-        series = provider.history(
-            strategy.ticker, days=lookback_days(strategy.indicator, strategy.params)
-        )
-        result = compute_indicator(strategy.indicator, series.closes, strategy.params)
-        value = result["value"]
-        previous = result["previous"]
+        series = provider.history(strategy.ticker, days=condition_lookback_days(tree))
+        outcome = evaluate_condition_tree(tree, series.closes)
+        detail = outcome["detail"]
+        value = primary_metric(detail)
+        data_synthetic = series.synthetic
 
-        if not evaluate_condition(strategy.operator, value, previous, strategy.threshold):
+        if not outcome["result"]:
             _persist_eval(strategy, value, now)
             return {"status": "quant_not_met", "value": value}
 
@@ -122,16 +124,19 @@ def _run_evaluation(strategy_id: str):
 
         # AI contextualisation (or straight-through when disabled). Network I/O —
         # deliberately outside any DB transaction.
+        summary = describe_tree(tree)
         if strategy.ai_enabled:
             news = provider.news(strategy.ticker, limit=5)
+            # Synthetic headlines can accompany real prices (or vice versa); the
+            # alert is "on synthetic data" if either source was fabricated.
+            data_synthetic = data_synthetic or any(n.get("source") == "synthetic" for n in news)
             verdict = ClaudeClient().assess(
                 ticker=strategy.ticker,
-                indicator=strategy.indicator,
-                operator=strategy.operator,
-                threshold=strategy.threshold,
+                condition_summary=summary,
                 metric_value=value,
                 user_prompt=strategy.ai_prompt,
                 news=news,
+                data_is_synthetic=data_synthetic,
             )
         else:
             verdict = AlertVerdict(
@@ -145,11 +150,9 @@ def _run_evaluation(strategy_id: str):
             _persist_eval(strategy, value, now)
             return {"status": "ai_suppressed", "value": value, "rationale": verdict.rationale}
 
-        op_label = OPERATORS.get(strategy.operator, strategy.operator)
-        message = (
-            f"{strategy.ticker} {strategy.indicator} = {value:.4f} "
-            f"({op_label} {strategy.threshold}). {verdict.rationale}"
-        )
+        value_str = f"{value:.4f}" if value is not None else "n/a"
+        prefix = "[SYNTHETIC DATA] " if data_synthetic else ""
+        message = f"{prefix}{strategy.ticker}: {summary} (value {value_str}). {verdict.rationale}"
 
         # S2: create the alert AND stamp the trigger in one transaction, so a crash
         # can never leave an alert without its cooldown stamp. select_for_update is
@@ -168,10 +171,12 @@ def _run_evaluation(strategy_id: str):
                 indicator=locked.indicator,
                 operator=locked.operator,
                 threshold=locked.threshold,
-                metric_value=value,
+                metric_value=value if value is not None else 0.0,
                 ai_used=verdict.ai_used,
                 ai_rationale=verdict.rationale,
                 message=message,
+                condition_detail=detail,
+                data_synthetic=data_synthetic,
             )
             locked.last_triggered_at = now
             locked.last_metric_value = value

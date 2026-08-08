@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import ReactFlow, {
   addEdge,
   applyEdgeChanges,
@@ -28,6 +28,8 @@ interface StrategyGraphBuilderProps {
   onCreated: () => void;
 }
 
+type RightMode = "value" | "indicator";
+
 interface AssetData {
   ticker: string;
 }
@@ -36,6 +38,12 @@ interface QuantData {
   operator: string;
   value: string;
   params: Record<string, unknown>;
+  rightMode: RightMode;
+  rightIndicator: string;
+  rightParam: string;
+}
+interface LogicData {
+  op: "AND" | "OR";
 }
 interface AiData {
   prompt: string;
@@ -44,19 +52,22 @@ interface AiData {
 const CatalogContext = createContext<IndicatorCatalog | null>(null);
 
 const INITIAL_NODES: Node[] = [
-  { id: "asset-1", type: "asset", position: { x: 0, y: 60 }, data: { ticker: "AAPL" } },
+  { id: "asset-1", type: "asset", position: { x: 0, y: 120 }, data: { ticker: "AAPL" } },
   {
     id: "quant-1",
     type: "quant",
-    position: { x: 280, y: 20 },
-    data: { indicator: "RSI", operator: "<", value: "30", params: {} },
+    position: { x: 260, y: 20 },
+    data: {
+      indicator: "RSI",
+      operator: "<",
+      value: "30",
+      params: {},
+      rightMode: "value",
+      rightIndicator: "SMA",
+      rightParam: "50",
+    },
   },
-  {
-    id: "ai-1",
-    type: "ai",
-    position: { x: 620, y: 60 },
-    data: { prompt: "Confirm this is a genuine oversold entry, not a falling knife." },
-  },
+  { id: "ai-1", type: "ai", position: { x: 720, y: 120 }, data: { prompt: "Confirm this is a genuine entry, not a falling knife." } },
 ];
 
 const INITIAL_EDGES: Edge[] = [
@@ -99,47 +110,96 @@ function AssetNode({ id, data }: NodeProps<AssetData>) {
 function QuantNode({ id, data }: NodeProps<QuantData>) {
   const update = useUpdateNodeData<QuantData>(id);
   const catalog = useContext(CatalogContext);
+  const indicators = catalog?.indicators ?? [];
+  const rightSpec = indicators.find((i) => i.key === data.rightIndicator);
+  const rightParamKey = Object.keys(rightSpec?.defaults ?? {})[0];
   return (
     <div className="rf-node quant">
       <Handle type="target" position={Position.Left} />
       <div className="rf-node-title">Quant condition</div>
       <label className="rf-field">
         <span>Indicator</span>
-        <select
-          className="nodrag"
-          value={data.indicator}
-          onChange={(e) => update({ indicator: e.target.value })}
-        >
-          {(catalog?.indicators ?? []).map((i) => (
-            <option key={i.key} value={i.key}>
-              {i.label}
-            </option>
+        <select className="nodrag" value={data.indicator} onChange={(e) => update({ indicator: e.target.value })}>
+          {indicators.map((i) => (
+            <option key={i.key} value={i.key}>{i.label}</option>
           ))}
         </select>
       </label>
       <label className="rf-field">
         <span>Operator</span>
-        <select
-          className="nodrag"
-          value={data.operator}
-          onChange={(e) => update({ operator: e.target.value })}
-        >
+        <select className="nodrag" value={data.operator} onChange={(e) => update({ operator: e.target.value })}>
           {(catalog?.operators ?? []).map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.key}
-            </option>
+            <option key={o.key} value={o.key}>{o.key}</option>
           ))}
         </select>
       </label>
       <label className="rf-field">
-        <span>Value</span>
-        <input
+        <span>Compare against</span>
+        <select
           className="nodrag"
-          type="number"
-          step="any"
-          value={data.value}
-          onChange={(e) => update({ value: e.target.value })}
-        />
+          value={data.rightMode}
+          onChange={(e) => update({ rightMode: e.target.value as RightMode })}
+        >
+          <option value="value">a constant</option>
+          <option value="indicator">another indicator</option>
+        </select>
+      </label>
+      {data.rightMode === "value" ? (
+        <label className="rf-field">
+          <span>Value</span>
+          <input
+            className="nodrag"
+            type="number"
+            step="any"
+            value={data.value}
+            onChange={(e) => update({ value: e.target.value })}
+          />
+        </label>
+      ) : (
+        <>
+          <label className="rf-field">
+            <span>Indicator</span>
+            <select
+              className="nodrag"
+              value={data.rightIndicator}
+              onChange={(e) => update({ rightIndicator: e.target.value })}
+            >
+              {indicators.map((i) => (
+                <option key={i.key} value={i.key}>{i.label}</option>
+              ))}
+            </select>
+          </label>
+          {rightParamKey && (
+            <label className="rf-field">
+              <span>{rightParamKey}</span>
+              <input
+                className="nodrag"
+                type="number"
+                min={1}
+                value={data.rightParam}
+                onChange={(e) => update({ rightParam: e.target.value })}
+              />
+            </label>
+          )}
+        </>
+      )}
+      <Handle type="source" position={Position.Right} />
+    </div>
+  );
+}
+
+function LogicNode({ id, data }: NodeProps<LogicData>) {
+  const update = useUpdateNodeData<LogicData>(id);
+  return (
+    <div className="rf-node logic">
+      <Handle type="target" position={Position.Left} />
+      <div className="rf-node-title">Logic</div>
+      <label className="rf-field">
+        <span>Combine inputs with</span>
+        <select className="nodrag" value={data.op} onChange={(e) => update({ op: e.target.value as "AND" | "OR" })}>
+          <option value="AND">AND (all must hold)</option>
+          <option value="OR">OR (any may hold)</option>
+        </select>
       </label>
       <Handle type="source" position={Position.Right} />
     </div>
@@ -165,7 +225,7 @@ function AiNode({ id, data }: NodeProps<AiData>) {
   );
 }
 
-const nodeTypes: NodeTypes = { asset: AssetNode, quant: QuantNode, ai: AiNode };
+const nodeTypes: NodeTypes = { asset: AssetNode, quant: QuantNode, logic: LogicNode, ai: AiNode };
 
 function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
   const [nodes, setNodes] = useState<Node[]>(INITIAL_NODES);
@@ -175,6 +235,7 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const counter = useRef(2);
 
   useEffect(() => {
     (async () => {
@@ -200,6 +261,32 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
     [],
   );
 
+  const addQuant = () => {
+    counter.current += 1;
+    const id = `quant-${counter.current}`;
+    setNodes((nds) => [
+      ...nds,
+      {
+        id,
+        type: "quant",
+        position: { x: 260, y: 260 + counter.current * 10 },
+        data: {
+          indicator: "PRICE", operator: "cross_above", value: "0", params: {},
+          rightMode: "indicator", rightIndicator: "SMA", rightParam: "50",
+        },
+      },
+    ]);
+  };
+
+  const addLogic = () => {
+    counter.current += 1;
+    const id = `logic-${counter.current}`;
+    setNodes((nds) => [
+      ...nds,
+      { id, type: "logic", position: { x: 500, y: 120 }, data: { op: "AND" } },
+    ]);
+  };
+
   const onDeploy = async () => {
     setError(null);
     setSuccess(null);
@@ -210,16 +297,18 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
         nodes: nodes.map((n) => {
           if (n.type === "quant") {
             const d = n.data as QuantData;
+            const right =
+              d.rightMode === "indicator"
+                ? { right: { indicator: d.rightIndicator, params: rightParams(catalog, d) } }
+                : { value: Number(d.value) };
             return {
               id: n.id,
               type: n.type,
-              data: {
-                indicator: d.indicator,
-                operator: d.operator,
-                value: Number(d.value),
-                params: d.params ?? {},
-              },
+              data: { indicator: d.indicator, operator: d.operator, params: d.params ?? {}, ...right },
             };
+          }
+          if (n.type === "logic") {
+            return { id: n.id, type: n.type, data: { op: (n.data as LogicData).op } };
           }
           return { id: n.id, type: n.type, data: n.data };
         }),
@@ -245,6 +334,8 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
           placeholder="Strategy name"
           aria-label="Graph strategy name"
         />
+        <button className="btn ghost" onClick={addQuant} type="button">+ Condition</button>
+        <button className="btn ghost" onClick={addLogic} type="button">+ AND/OR</button>
         <button className="btn primary" onClick={() => void onDeploy()} disabled={deploying}>
           {deploying ? "Deploying…" : "Deploy graph"}
         </button>
@@ -254,8 +345,9 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
       {success && <div className="alert success">{success}</div>}
 
       <p className="muted small">
-        Drag nodes to arrange. Connect Asset → Quant → AI by dragging between the handles.
-        Inputs write straight back into each node.
+        Connect Asset → Condition(s) → AI. To combine conditions, drop an AND/OR node and wire
+        each condition into it, then the AND/OR node into the AI node. A condition can compare an
+        indicator to a constant or to another indicator (e.g. price crosses above its SMA).
       </p>
 
       <div className="rf-canvas">
@@ -274,6 +366,13 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
       </div>
     </CatalogContext.Provider>
   );
+}
+
+function rightParams(catalog: IndicatorCatalog | null, d: QuantData): Record<string, number> {
+  const spec = catalog?.indicators.find((i) => i.key === d.rightIndicator);
+  const key = Object.keys(spec?.defaults ?? {})[0];
+  if (!key || !d.rightParam) return {};
+  return { [key]: Number(d.rightParam) };
 }
 
 export default function StrategyGraphBuilder({ onCreated }: StrategyGraphBuilderProps) {

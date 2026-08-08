@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import api from "../api/client";
 import { extractError } from "../api/errors";
-import type { EvaluateResult, Paginated, Strategy } from "../api/types";
+import type { EvaluateResult, Paginated, ReplayResult, Strategy } from "../api/types";
 import StrategyForm from "./StrategyForm";
 import StrategyGraphBuilder from "./StrategyGraphBuilder";
 
@@ -13,6 +13,33 @@ function formatDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+function renderReplay(rep: ReplayResult | { error: string }) {
+  if ("error" in rep) {
+    return <span className="alert error">Replay failed: {rep.error}</span>;
+  }
+  const recent = rep.fires.slice(-6).reverse();
+  return (
+    <div className="replay-summary">
+      <div className="replay-head">
+        <strong>Signal replay</strong> — <span className="mono">{rep.condition}</span> would have
+        fired <strong>{rep.fire_count}</strong> {rep.fire_count === 1 ? "time" : "times"} over{" "}
+        {rep.bars} bars.
+        {rep.synthetic && (
+          <span className="badge synthetic" title="Replayed on synthetic fallback data, not real market data">
+            SYNTHETIC
+          </span>
+        )}
+      </div>
+      {recent.length > 0 && (
+        <div className="replay-fires muted small">
+          Most recent:{" "}
+          {recent.map((f) => (f.date ? f.date.slice(0, 10) : `bar ${f.index}`)).join(" · ")}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function StrategiesPanel() {
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [loading, setLoading] = useState(false);
@@ -21,6 +48,7 @@ export default function StrategiesPanel() {
 
   const [evalState, setEvalState] = useState<Record<string, string>>({});
   const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
+  const [replay, setReplay] = useState<Record<string, ReplayResult | { error: string }>>({});
 
   const load = async () => {
     setLoading(true);
@@ -48,6 +76,18 @@ export default function StrategiesPanel() {
       await load();
     } catch (err) {
       setEvalState((s) => ({ ...s, [id]: extractError(err) }));
+    } finally {
+      setRowBusy((s) => ({ ...s, [id]: false }));
+    }
+  };
+
+  const runReplay = async (id: string) => {
+    setRowBusy((s) => ({ ...s, [id]: true }));
+    try {
+      const res = await api.post<ReplayResult>(`/strategies/${id}/replay/`, { days: 365 });
+      setReplay((s) => ({ ...s, [id]: res.data }));
+    } catch (err) {
+      setReplay((s) => ({ ...s, [id]: { error: extractError(err) } }));
     } finally {
       setRowBusy((s) => ({ ...s, [id]: false }));
     }
@@ -94,39 +134,58 @@ export default function StrategiesPanel() {
                 </tr>
               </thead>
               <tbody>
-                {strategies.map((s) => (
-                  <tr key={s.id}>
-                    <td>
-                      {s.name}
-                      {s.ai_enabled && <span className="badge ai">AI</span>}
-                    </td>
-                    <td>{s.ticker}</td>
-                    <td className="mono">
-                      {s.indicator} {s.operator} {s.threshold}
-                    </td>
-                    <td>
-                      <span className="badge status">{s.status}</span>
-                    </td>
-                    <td className="muted">{formatDate(s.last_triggered_at)}</td>
-                    <td className="muted">{evalState[s.id] ?? "—"}</td>
-                    <td className="num actions">
-                      <button
-                        className="btn small"
-                        onClick={() => void evaluate(s.id)}
-                        disabled={rowBusy[s.id]}
-                      >
-                        Evaluate
-                      </button>
-                      <button
-                        className="btn small danger"
-                        onClick={() => void remove(s.id)}
-                        disabled={rowBusy[s.id]}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {strategies.map((s) => {
+                  const rep = replay[s.id];
+                  return (
+                    <Fragment key={s.id}>
+                      <tr>
+                        <td>
+                          {s.name}
+                          {s.ai_enabled && <span className="badge ai">AI</span>}
+                          {s.condition != null && <span className="badge status">composite</span>}
+                        </td>
+                        <td>{s.ticker}</td>
+                        <td className="mono">
+                          {s.indicator} {s.operator} {s.threshold}
+                        </td>
+                        <td>
+                          <span className="badge status">{s.status}</span>
+                        </td>
+                        <td className="muted">{formatDate(s.last_triggered_at)}</td>
+                        <td className="muted">{evalState[s.id] ?? "—"}</td>
+                        <td className="num actions">
+                          <button
+                            className="btn small"
+                            onClick={() => void evaluate(s.id)}
+                            disabled={rowBusy[s.id]}
+                          >
+                            Evaluate
+                          </button>
+                          <button
+                            className="btn small"
+                            onClick={() => void runReplay(s.id)}
+                            disabled={rowBusy[s.id]}
+                            title="Replay this condition over history — when would it have fired?"
+                          >
+                            Replay
+                          </button>
+                          <button
+                            className="btn small danger"
+                            onClick={() => void remove(s.id)}
+                            disabled={rowBusy[s.id]}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                      {rep && (
+                        <tr className="replay-row">
+                          <td colSpan={7}>{renderReplay(rep)}</td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>

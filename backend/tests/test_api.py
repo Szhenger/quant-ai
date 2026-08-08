@@ -75,11 +75,73 @@ def test_deploy_graph(auth_client, workspace):
     assert s.ai_enabled is True
 
 
+def test_create_composite_strategy(auth_client, workspace):
+    resp = auth_client.post("/api/v1/strategies/", {
+        "name": "RSI + trend",
+        "ticker": "aapl",
+        "ai_enabled": False,
+        "condition": {
+            "type": "group", "op": "AND", "children": [
+                {"type": "compare", "left": {"indicator": "RSI"},
+                 "operator": "<", "right": {"value": 30}},
+                {"type": "compare", "left": {"indicator": "PRICE"}, "operator": "cross_above",
+                 "right": {"indicator": "SMA", "params": {"window": 50}}},
+            ],
+        },
+    }, format="json")
+    assert resp.status_code == 201, resp.content
+    s = Strategy.objects.get(workspace=workspace)
+    assert s.condition["type"] == "group"
+    # Composite mode fills default params inside the tree...
+    assert s.condition["children"][0]["left"]["params"] == {"period": 14}
+    # ...and derives representative flat columns from the first leaf.
+    assert s.indicator == "RSI"
+    assert s.operator == "<"
+    assert s.threshold == 30.0
+
+
+def test_reject_invalid_composite_condition(auth_client):
+    resp = auth_client.post("/api/v1/strategies/", {
+        "name": "bad", "ticker": "AAPL", "ai_enabled": False,
+        "condition": {"type": "compare", "left": {"indicator": "NOPE"},
+                      "operator": "<", "right": {"value": 1}},
+    }, format="json")
+    assert resp.status_code == 400
+    assert "condition" in resp.data
+
+
 def test_indicator_catalog(auth_client):
     resp = auth_client.get("/api/v1/indicators/")
     assert resp.status_code == 200
     keys = {i["key"] for i in resp.data["indicators"]}
     assert {"Z_SCORE", "RSI", "PRICE"}.issubset(keys)
+
+
+def test_replay_endpoint(auth_client, workspace):
+    s = Strategy.objects.create(
+        workspace=workspace, name="r", ticker="AAPL",
+        indicator="PRICE", operator=">", threshold=0.0, ai_enabled=False,
+    )
+    resp = auth_client.post(f"/api/v1/strategies/{s.id}/replay/", {"days": 120}, format="json")
+    assert resp.status_code == 200, resp.content
+    # PRICE > 0 holds on every synthetic bar, so it "would have fired" throughout.
+    assert resp.data["synthetic"] is True          # honest about the data source
+    assert resp.data["provider"] == "synthetic"
+    assert resp.data["fire_count"] >= 30
+    assert len(resp.data["closes"]) >= 120
+    assert resp.data["fires"][0]["date"] is not None
+
+
+def test_replay_cooldown_thins_fires(auth_client, workspace):
+    s = Strategy.objects.create(
+        workspace=workspace, name="r2", ticker="AAPL",
+        indicator="PRICE", operator=">", threshold=0.0, ai_enabled=False,
+    )
+    raw = auth_client.post(f"/api/v1/strategies/{s.id}/replay/", {"days": 120}, format="json")
+    cd = auth_client.post(
+        f"/api/v1/strategies/{s.id}/replay/", {"days": 120, "cooldown_bars": 10}, format="json"
+    )
+    assert cd.data["fire_count"] < raw.data["fire_count"]
 
 
 def test_market_analysis(auth_client):

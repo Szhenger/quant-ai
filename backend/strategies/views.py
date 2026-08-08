@@ -5,10 +5,28 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.workspaces import resolve_active_workspace
-from marketdata import INDICATOR_SPECS, OPERATORS, analyze_market
+from marketdata import (
+    INDICATOR_SPECS,
+    OPERATORS,
+    analyze_market,
+    get_provider,
+    condition_lookback_days,
+    describe_tree,
+    replay_condition,
+)
 from .models import Strategy, Alert
 from .serializers import StrategySerializer, AlertSerializer
 from .compiler import compile_graph, GraphCompilationError
+
+
+def _int_param(request, name, default):
+    raw = request.query_params.get(name)
+    if raw is None:
+        raw = request.data.get(name) if hasattr(request.data, "get") else None
+    try:
+        return int(raw) if raw is not None else default
+    except (TypeError, ValueError):
+        return default
 
 
 class StrategyViewSet(viewsets.ModelViewSet):
@@ -40,10 +58,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         data = {
             "name": payload.get("name") or f"{compiled['ticker']} {compiled['indicator']}",
             "ticker": compiled["ticker"],
-            "indicator": compiled["indicator"],
-            "params": compiled["params"],
-            "operator": compiled["operator"],
-            "threshold": compiled["threshold"],
+            "condition": compiled["condition"],
             "ai_enabled": compiled["ai_enabled"],
             "ai_prompt": compiled["ai_prompt"],
         }
@@ -59,6 +74,40 @@ class StrategyViewSet(viewsets.ModelViewSet):
         from .tasks import evaluate_strategy  # local import avoids app-loading cycles
         result = evaluate_strategy(str(strategy.id))
         return Response(result)
+
+    @action(detail=True, methods=["get", "post"])
+    def replay(self, request, pk=None):
+        """Signal replay: walk this strategy's condition over historical bars and
+        report every bar where it *would* have fired. Deterministic and offline
+        (no AI, no alert side effects) — a would-fire timeline, not a P&L backtest.
+
+        Query/body params: ``days`` (30-1000, default 365), ``cooldown_bars``
+        (0-365, default 0) to dedupe a persistent condition.
+        """
+        strategy = self.get_object()
+        tree = strategy.condition_tree()
+        days = max(30, min(_int_param(request, "days", 365), 1000))
+        cooldown_bars = max(0, min(_int_param(request, "cooldown_bars", 0), 365))
+
+        provider = get_provider()
+        # Fetch enough history for the indicators to warm up *and* cover the window.
+        series = provider.history(
+            strategy.ticker, days=max(days, condition_lookback_days(tree))
+        )
+        result = replay_condition(tree, series.closes, series.dates, cooldown_bars=cooldown_bars)
+        return Response({
+            "strategy_id": str(strategy.id),
+            "ticker": strategy.ticker,
+            "condition": describe_tree(tree),
+            "provider": "synthetic" if series.synthetic else provider.name,
+            "synthetic": series.synthetic,
+            "cooldown_bars": cooldown_bars,
+            "bars": result["bars"],
+            "fire_count": result["fire_count"],
+            "fires": result["fires"],
+            "dates": series.dates,
+            "closes": series.closes,
+        })
 
 
 class AlertViewSet(viewsets.ReadOnlyModelViewSet):

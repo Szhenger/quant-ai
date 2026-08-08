@@ -157,6 +157,13 @@ CORS_ALLOWED_ORIGINS = os.environ.get(
 # auto -> use yfinance when importable/online, else deterministic synthetic data.
 MARKETDATA_PROVIDER = os.environ.get("MARKETDATA_PROVIDER", "auto")
 
+# Optional local bar cache (Parquet files queried with DuckDB). Off by default;
+# when on, real bars are cached under MARKETDATA_CACHE_DIR for MARKETDATA_CACHE_TTL
+# seconds so repeated evaluations reuse them. Synthetic data is never cached.
+MARKETDATA_CACHE = env_bool("MARKETDATA_CACHE", False)
+MARKETDATA_CACHE_DIR = os.environ.get("MARKETDATA_CACHE_DIR", str(BASE_DIR / ".marketdata_cache"))
+MARKETDATA_CACHE_TTL = int(os.environ.get("MARKETDATA_CACHE_TTL", "3600"))
+
 # --- Anthropic Claude (AI contextualisation layer) --------------------------
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
