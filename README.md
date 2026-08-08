@@ -1,118 +1,87 @@
 # QuantAI
 
-An AI-powered quantitative-research workspace. Follow the markets you care about,
-get their quantitative analysis on demand, define the exact conditions you want to
-watch for, and receive **AI-contextualised alerts** the moment those conditions fire.
+### An AI-powered quantitative-research workspace — *and* a course that teaches you the quant finance inside it, from first principles.
 
-QuantAI packages the day-to-day of a quant researcher into three moves:
+Alright. Here's the deal.
 
-1. **Follow markets** — build a watchlist and pull a live quantitative snapshot
-   (z-score, RSI, MACD, moving-average spread, volatility, % change) for any ticker.
-2. **Define conditions** — create a strategy such as *"AAPL 20-day z-score < −2"*
-   with an optional AI directive (*"is the earnings thesis actually broken?"*).
-3. **Get alerted** — the system evaluates active strategies on a schedule, asks
-   Claude whether a triggered condition is a real signal or noise, and delivers an
-   alert in-app (live WebSocket), by email, and/or to a webhook.
+Most software you download is a black box. You run it, it does a thing, and if you ever open the hood you find ten thousand lines that assume you already know everything. QuantAI is the opposite. It is a **real, working application** — you can run it today, follow real markets, define real alerting rules, and get real AI-assisted notifications when those rules fire. But it is *also* a **textbook you can execute**. Every number the program computes, every formula in the code, is derived in these docs starting from something you already understand.
 
----
+The promise is specific. If you are a **math undergraduate** who has seen
 
-## Architecture
+- basic **calculus** (derivatives, a little bit of limits, the idea of an exponential),
+- **linear algebra** (vectors, dot products, means as sums),
+- **elementary discrete probability** (outcomes, expectation, variance, independence),
 
-```
-                     ┌──────────────────────────────────────────────┐
-  React SPA  ──HTTP──▶  Django + DRF API  (auth, workspaces, CRUD)   │
-   (Vite)    ──WS────▶  Django Channels    (live alert stream)       │
-                     └───────────────┬──────────────────────────────┘
-                                     │
-              Celery Beat (every 60s)│ sweep_due_strategies
-                                     ▼
-                        Celery worker: evaluate_strategy
-                   ┌───────────────┼─────────────────┐
-                   ▼               ▼                 ▼
-             market data      quant indicators   Claude (AI)
-           (yfinance / synth)  (numpy)          contextualisation
-                                     │
-                                     ▼
-                          Alert  ──▶  in-app / email / webhook
-```
+and you have taken something like **[CS50x](https://cs50.harvard.edu/x/)** (you can read code, you know what a function and a loop and an HTTP request are), then by the end of this course you will understand quantitative finance the way a practitioner does: not as a bag of tricks, but as a small number of ideas about **randomness, information, and time**, made precise, made computable, and made safe to run in production.
 
-- **`backend/`** — Django 5 + DRF + Channels + Celery.
-  - `core` — `Workspace` (tenant) + `WatchedTicker` watchlist, JWT auth, registration.
-  - `marketdata` — pluggable price providers (yfinance with a deterministic synthetic
-    fallback) and a numpy indicator library.
-  - `ai` — Anthropic Claude client with graceful degradation (no key → fire on the
-    quantitative condition alone).
-  - `strategies` — `Strategy` + `Alert` models, CRUD API, React-Flow graph compiler,
-    the evaluation Celery tasks, alert delivery, and the WebSocket consumer.
-- **`frontend/`** — React + TypeScript + Vite SPA (strategy form builder **and** a
-  React-Flow node-graph builder, market-analysis dashboard, live alerts panel).
-
-Multi-tenancy is enforced at the application layer: every workspace-scoped request
-must carry an `X-Workspace-ID` header, and querysets are filtered to workspaces the
-authenticated user owns. WebSocket connections authenticate via a JWT `?token=` query
-parameter and are refused if the user does not own the requested workspace.
+We are going to earn every result. No formula appears without a reason. When the code writes `std_dev * sqrt(252)`, you will know *why* it's a square root and *why* it's 252, and you'll be able to re-derive it on a napkin.
 
 ---
 
-## Quickstart (Docker)
+## What you'll be able to do
 
-```bash
-docker compose up --build        # starts postgres, redis, api (ASGI), worker, beat
-```
+By the last page you will be able to:
 
-The API is then at `http://localhost:8000` (`/api/docs/` for the OpenAPI UI).
+- **Read a price chart like a statistician** — decompose it into returns, model those returns as random variables, and reason about what is signal and what is noise.
+- **Derive, from scratch, every indicator in the code** — the z-score, moving averages, RSI, MACD, and volatility — and explain the assumption each one quietly makes.
+- **Quantify risk** — measure volatility and understand the famous "square-root-of-time" rule as a theorem, not a folk saying.
+- **Think in probabilities about signals** — use conditional probability and base rates to understand why a raw trading signal is usually a lie, and why we bolt an AI on top of it.
+- **Build the system that runs it all** — data feeds, a computation layer, a scheduler, a real-time alert channel — and make it **correct under concurrency**, which is where most "quant" code silently breaks.
 
-Run the frontend against it:
-
-```bash
-cd frontend
-npm install
-npm run dev                      # http://localhost:5173 (proxies /api and /ws to :8000)
-```
-
-Set `ANTHROPIC_API_KEY` in your environment (or `backend/.env`) to enable the AI
-layer; without it, alerts fire on the quantitative condition alone.
-
-## Quickstart (local, no Docker)
-
-```bash
-cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-export MARKETDATA_PROVIDER=synthetic          # or 'auto' to use live yfinance data
-python manage.py migrate
-python manage.py runserver                    # dev; use daphne for WebSockets
-# in another shell, for scheduled evaluation:
-celery -A config worker -l info
-celery -A config beat -l info
-```
-
-> The dev `runserver` serves HTTP only. For live WebSocket alerts run the ASGI server:
-> `daphne -b 0.0.0.0 -p 8000 config.asgi:application`.
+That is genuinely most of what a junior quant researcher and the engineer sitting next to them need to know. The rest is practice.
 
 ---
 
-## Tests
+## The syllabus
 
-```bash
-cd backend
-pip install -r requirements.txt
-pytest                 # 33 tests: indicators, compiler, API, tenant isolation, evaluation
-```
+Read [**`math/00-preface.md`**](math/00-preface.md) first — it's five minutes, it sets the notation we use everywhere, and it explains how each chapter is built.
 
-Tests run fully offline: sqlite, eager Celery, in-memory Channels, the synthetic
-market-data provider, and the AI layer in its no-key degradation mode.
+Then the course proper. Each chapter ends with the same three sections: **In the code** (the exact file and function that implements the idea), a **Worked example** (real numbers), and a **Problem set** (do these — that's how it sticks).
+
+| # | Chapter | The question it answers | Code it unlocks |
+|---|---|---|---|
+| 0 | [Preface](math/00-preface.md) | How do I read this, and what do I need? | — |
+| 1 | [What is a market?](math/01-what-is-a-market.md) | What *is* a price, and what does it mean for it to "go up"? | `marketdata/providers.py`, `PCT_CHANGE` |
+| 2 | [The statistics of returns](math/02-statistics-of-returns.md) | If prices are random, what can we possibly know? | `numpy`, sample mean & std |
+| 3 | [The z-score & mean reversion](math/03-zscore-and-mean-reversion.md) | "This looks unusually cheap." Says who? | `Z_SCORE`, `_zscore_series` |
+| 4 | [Trend & moving averages](math/04-trend-and-moving-averages.md) | How do you measure a trend without fooling yourself? | `SMA_CROSS`, `_sma`, `_ema` |
+| 5 | [Momentum: RSI & MACD](math/05-momentum-rsi-macd.md) | Is this move exhausting itself or just getting started? | `RSI`, `MACD_HIST` |
+| 6 | [Volatility & the square root of time](math/06-volatility.md) | How much does this thing *usually* move, and over what horizon? | `VOLATILITY`, `_volatility_series` |
+| 7 | [Signal vs. noise](math/07-signal-vs-noise.md) | My rule just fired. Should I believe it? | cooldown, `ai/claude_client.py` |
+| 8 | [From a formula to a system](math/08-from-math-to-system.md) | How do you turn an equation into a service that runs forever? | the whole backend |
+| 9 | [The API as a contract](math/09-the-api-contract.md) | How do humans and machines talk to this safely? | `strategies/urls.py`, JWT, WebSockets |
+| 10 | [Concurrency & safety](math/10-concurrency-and-safety.md) | Why did it send the same alert twice, and how do we make it *never* happen? | `strategies/tasks.py` |
+
+Practical, in-the-same-voice guides for when you're actually hacking on it: [**`backend/README.md`**](backend/README.md) and [**`frontend/README.md`**](frontend/README.md).
 
 ---
 
-## The strategy → evaluate → alert loop
+## Run it (so the course has something to point at)
 
-1. A user POSTs a strategy (form builder) or a node graph (`/strategies/deploy-graph/`).
-2. `Strategy` is persisted, bound to the active workspace, `status=active`.
-3. `sweep_due_strategies` (Beat, 60s) enqueues `evaluate_strategy` for every active
-   strategy whose `poll_interval_minutes` has elapsed.
-4. `evaluate_strategy` pulls prices → computes the indicator → checks the operator/threshold
-   (with cross-over support) → respects the cooldown → optionally asks Claude to confirm
-   the signal → creates an `Alert` and delivers it across the opted-in channels.
+You do not need the app running to read the course — but it's more fun when the words on the page correspond to numbers on your screen. The fastest path:
 
-See `docs/architecture.md` for the full design and `docs/api.md` for the endpoint reference.
+```bash
+docker compose up --build     # postgres, redis, the API (ASGI), a worker, a scheduler
+```
+
+Then, in another terminal, the web client:
+
+```bash
+cd frontend && npm install && npm run dev     # http://localhost:5173
+```
+
+Prefer no Docker? [`backend/README.md`](backend/README.md) has the local recipe, and everything runs offline against a deterministic **synthetic** market so you never need an API key or an internet connection to learn.
+
+Want to see the machinery without the ceremony? The tests are a guided tour:
+
+```bash
+cd backend && pip install -r requirements.txt && pytest    # 47 tests, all offline
+```
+
+---
+
+## A note on honesty
+
+This project started life as something else entirely and was rebuilt to do one thing well. The engineering docs describe **what the code actually does**, not what would be impressive to claim. When we cut a corner, we say so. When a technique has a known failure mode, we show you the failure first and the fix second — because that's the only way you actually learn it.
+
+Turn to [the preface](math/00-preface.md). Let's begin.
