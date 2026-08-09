@@ -45,6 +45,10 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    # GZip first so it compresses the final response (indicator/replay payloads
+    # are large, repetitive JSON — 5-10x smaller on the wire). Django >= 4.2's
+    # GZipMiddleware carries built-in BREACH mitigation (random gzip padding).
+    "django.middleware.gzip.GZipMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -130,8 +134,11 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
+        # Inert unless a view sets throttle_scope — used by the compute-heavy
+        # endpoints (analysis, replay, manual evaluate).
+        "rest_framework.throttling.ScopedRateThrottle",
     ],
-    "DEFAULT_THROTTLE_RATES": {"anon": "60/hour", "user": "2000/hour"},
+    "DEFAULT_THROTTLE_RATES": {"anon": "60/hour", "user": "2000/hour", "compute": "120/min"},
 }
 
 SIMPLE_JWT = {
@@ -152,10 +159,25 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
 ).split(",")
+# Every workspace-scoped request carries X-Workspace-ID; without this the
+# browser's CORS preflight rejects it for any cross-origin frontend.
+from corsheaders.defaults import default_headers  # noqa: E402
+
+CORS_ALLOW_HEADERS = [*default_headers, "x-workspace-id"]
 
 # --- Market data provider ----------------------------------------------------
 # auto -> use yfinance when importable/online, else deterministic synthetic data.
 MARKETDATA_PROVIDER = os.environ.get("MARKETDATA_PROVIDER", "auto")
+
+# --- Interactive read-path compute cache (core.caching) ----------------------
+# Fleet-wide (Redis) TTLs for the finished analysis/replay payloads. Short for
+# analysis (an intraday snapshot), longer for replay (a function of daily bars
+# and the condition tree — it only changes when the day rolls or the tree does).
+ANALYSIS_CACHE_TTL = int(os.environ.get("ANALYSIS_CACHE_TTL", "120"))
+REPLAY_CACHE_TTL = int(os.environ.get("REPLAY_CACHE_TTL", "600"))
+# Payloads computed from synthetic *fallback* data (provider degraded) live
+# only briefly, so real data replaces them as soon as connectivity returns.
+SYNTHETIC_CACHE_TTL = int(os.environ.get("SYNTHETIC_CACHE_TTL", "30"))
 
 # Optional local bar cache (Parquet files queried with DuckDB). Off by default;
 # when on, real bars are cached under MARKETDATA_CACHE_DIR for MARKETDATA_CACHE_TTL

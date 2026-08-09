@@ -75,7 +75,7 @@ Prefer no Docker? [`backend/README.md`](backend/README.md) has the local recipe,
 Want to see the machinery without the ceremony? The tests are a guided tour:
 
 ```bash
-cd backend && pip install -r requirements.txt && pytest    # 47 tests, all offline
+cd backend && pip install -r requirements.txt && pytest    # 121 tests, all offline
 ```
 
 ---
