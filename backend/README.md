@@ -18,7 +18,7 @@ teaches, the chapter is your reference.
 
 | App | What it is | Where the ideas live |
 |---|---|---|
-| `core` | Tenancy: the `Workspace` (the isolation unit) + `WatchedTicker`, JWT registration, and `resolve_active_workspace` — the one line that enforces "this workspace is really yours." | [Ch. 8](../math/08-from-math-to-system.md) (isolation), [Ch. 9](../math/09-the-api-contract.md) (the header check) |
+| `core` | Tenancy: the `Workspace` (the isolation unit) + `WatchedTicker`, JWT registration, and `resolve_active_workspace` — the one line that enforces "this workspace is really yours." Also `caching.py`: the single-flight compute cache and ETag helpers behind the interactive read path (below). | [Ch. 8](../math/08-from-math-to-system.md) (isolation), [Ch. 9](../math/09-the-api-contract.md) (the header check), [Ch. 10](../math/10-concurrency-and-safety.md) (the stampede) |
 | `marketdata` | The numbers. Price providers (`yfinance` + the deterministic synthetic fallback) and the numpy indicator library — `compute_indicator`, `evaluate_condition`, `analyze_market`. Every z-score, SMA, RSI, and volatility figure is born here. | [Chapters 1–6](../README.md#the-syllabus) |
 | `ai` | The doubt layer. `ClaudeClient.assess` asks Claude whether a raw signal is worth bothering you about, and **degrades gracefully to a no-op with no API key** — so the offline path never blocks. | [Ch. 7 — Signal vs. noise](../math/07-signal-vs-noise.md) |
 | `strategies` | The system. `Strategy` + `Alert` models, the CRUD / graph-deploy / market-analysis API, the `AlertConsumer` WebSocket (+ JWT WS auth in `ws_auth.py`), and — the beating heart — `tasks.py`: `sweep_due_strategies` and `evaluate_strategy`, plus alert delivery. | The API in [Ch. 9](../math/09-the-api-contract.md); `tasks.py` in [Ch. 8](../math/08-from-math-to-system.md) & [Ch. 10 — Concurrency & safety](../math/10-concurrency-and-safety.md) |
@@ -27,6 +27,30 @@ teaches, the chapter is your reference.
 > **Short:** if you only open one file, make it `strategies/tasks.py`. It's where a formula
 > becomes a service, and where "send the alert *once*" is either won or lost. Read
 > [Chapter 10](../math/10-concurrency-and-safety.md) with that file open.
+
+## The interactive read path (performance & concurrency)
+
+The worker fleet has its own concurrency story (Ch. 10); the web tier has one too, and it
+lives in `core/caching.py` + the views that use it:
+
+- **Single-flight compute cache.** `GET /markets/<t>/analysis/` and `/strategies/<id>/replay/`
+  are pure functions of their inputs plus the provider's bars, so the finished payload is
+  cached fleet-wide in Redis. The subtle part is the *stampede*: when a hot key expires,
+  every concurrent request would recompute at once. `cached_compute` takes a flight lock
+  (`cache.add`, the same atomic primitive as the eval lock) so exactly one request computes
+  and everyone else adopts the published answer — with a bounded wait and a compute-yourself
+  fallback if the flight holder dies. Replay keys are **content-addressed** (condition tree +
+  ticker + window, *not* strategy id), so identical conditions share one entry.
+- **Conditional GET.** Both endpoints send a strong `ETag`; a matching `If-None-Match` gets
+  an empty `304` — revalidation costs a hash compare, not a recompute or a re-download.
+- **Gzip.** Indicator/replay payloads are large, repetitive JSON; `GZipMiddleware` cuts them
+  ~5–10× on the wire.
+- **Cursor pagination for alerts.** The one table that grows forever is paged by keyset
+  (`created_at`, backed by a composite index), so page 100 costs the same as page 1 and
+  concurrent inserts can't shift the window mid-walk. `unread-count` is an indexed `COUNT`;
+  `mark-all-read` is a single `UPDATE` (no read-modify-write race).
+- **Scoped throttle.** The compute-heavy endpoints (`analysis`, `replay`, manual `evaluate`)
+  carry a separate `compute` rate on top of the global user throttle.
 
 ## Run it locally (no Docker)
 
@@ -63,12 +87,14 @@ sqlite, runs Celery **eagerly** (tasks execute inline, no broker), uses an in-me
 layer, and forces the **synthetic** market — so the suite is deterministic and hermetic.
 
 ```bash
-pytest        # 47 tests, all offline
+pytest        # 117 tests, all offline
 ```
 
-Those 47 tests double as a guided tour of the engine: `test_indicators.py` checks the
+The tests double as a guided tour of the engine: `test_indicators.py` checks the
 Chapter 1–6 math, `test_evaluation.py` and `test_compiler.py` exercise the strategy pipeline,
-and `test_api.py` walks the Chapter 9 contract end to end.
+`test_api.py` walks the Chapter 9 contract end to end, and `test_webstack.py` covers the
+web tier's performance/concurrency behavior (single-flight caching, ETags, cursor pages,
+the WebSocket heartbeat).
 
 ## Key environment variables
 
@@ -78,6 +104,7 @@ that matter (full list in `.env.example`):
 | Variable | Default | What it does |
 |---|---|---|
 | `MARKETDATA_PROVIDER` | `auto` | `auto` uses `yfinance` when it's importable/online, else falls back to `synthetic`. Force `synthetic` for reproducible, offline data; `yfinance` for real quotes. |
+| `ANALYSIS_CACHE_TTL` / `REPLAY_CACHE_TTL` | `120` / `600` | Seconds the finished analysis/replay payloads live in the fleet-wide compute cache (`core/caching.py`). Analysis is an intraday snapshot (short); a replay only changes when the day rolls or the condition tree does (longer). |
 | `ANTHROPIC_API_KEY` | *(empty)* | **Optional.** Set it to switch on the real Chapter 7 AI layer; leave it empty and `ai` degrades to a no-op. No key needed to learn. |
 | `REDIS_URL` | `redis://localhost:6379/0` | Backs Channels (alert delivery), the Celery broker/result store, **and** the shared cache that holds the per-strategy evaluation lock ([Ch. 10](../math/10-concurrency-and-safety.md)). Must be a shared backend, not per-process memory. |
 | `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | `quantai` / `quantai` / `quantai` / `localhost` / `5432` | The Postgres connection for the live system. (Tests ignore these — they use sqlite.) |

@@ -26,6 +26,14 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
         if hasattr(self, "group"):
             await self.channel_layer.group_discard(self.group, self.channel_name)
 
+    async def receive_json(self, content, **kwargs):
+        """Client heartbeat. Browsers don't surface a half-open TCP connection
+        (proxy died, laptop slept) — the socket looks open but delivers
+        nothing. The client pings periodically; a missed pong tells it to
+        tear down and reconnect. ``t`` is echoed for client-side RTT."""
+        if isinstance(content, dict) and content.get("type") == "ping":
+            await self.send_json({"type": "pong", "t": content.get("t")})
+
     async def alert_message(self, event):
         """Handler for {'type': 'alert.message', 'data': ...} group sends."""
         await self.send_json({"type": "alert", "alert": event["data"]})

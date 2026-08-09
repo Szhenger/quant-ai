@@ -1,9 +1,19 @@
-import { Fragment, useEffect, useState } from "react";
-import api from "../api/client";
+import { Fragment, Suspense, lazy, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { extractError } from "../api/errors";
-import type { EvaluateResult, Paginated, ReplayResult, Strategy } from "../api/types";
+import {
+  keys,
+  useDeleteStrategy,
+  useEvaluateStrategy,
+  useStrategies,
+  useWorkspaceId,
+} from "../api/hooks";
 import StrategyForm from "./StrategyForm";
-import StrategyGraphBuilder from "./StrategyGraphBuilder";
+import ReplayPanel from "./ReplayPanel";
+
+// The graph builder pulls in reactflow (~the largest thing in the bundle);
+// load it only when someone actually opens the graph tab.
+const StrategyGraphBuilder = lazy(() => import("./StrategyGraphBuilder"));
 
 type Builder = "form" | "graph";
 
@@ -13,111 +23,48 @@ function formatDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-function renderReplay(rep: ReplayResult | { error: string }) {
-  if ("error" in rep) {
-    return <span className="alert error">Replay failed: {rep.error}</span>;
-  }
-  const recent = rep.fires.slice(-6).reverse();
-  return (
-    <div className="replay-summary">
-      <div className="replay-head">
-        <strong>Signal replay</strong> — <span className="mono">{rep.condition}</span> would have
-        fired <strong>{rep.fire_count}</strong> {rep.fire_count === 1 ? "time" : "times"} over{" "}
-        {rep.bars} bars.
-        {rep.synthetic && (
-          <span className="badge synthetic" title="Replayed on synthetic fallback data, not real market data">
-            SYNTHETIC
-          </span>
-        )}
-      </div>
-      {recent.length > 0 && (
-        <div className="replay-fires muted small">
-          Most recent:{" "}
-          {recent.map((f) => (f.date ? f.date.slice(0, 10) : `bar ${f.index}`)).join(" · ")}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function StrategiesPanel() {
-  const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  const strategies = useStrategies();
+  const evaluate = useEvaluateStrategy();
+  const remove = useDeleteStrategy();
+
   const [builder, setBuilder] = useState<Builder>("form");
-
   const [evalState, setEvalState] = useState<Record<string, string>>({});
-  const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
-  const [replay, setReplay] = useState<Record<string, ReplayResult | { error: string }>>({});
+  const [openReplayId, setOpenReplayId] = useState<string | null>(null);
 
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<Paginated<Strategy>>("/strategies/");
-      setStrategies(res.data.results);
-    } catch (err) {
-      setError(extractError(err));
-    } finally {
-      setLoading(false);
-    }
-  };
+  const onCreated = () => void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
 
-  useEffect(() => {
-    void load();
-  }, []);
-
-  const evaluate = async (id: string) => {
-    setRowBusy((s) => ({ ...s, [id]: true }));
+  const runEvaluate = (id: string) => {
     setEvalState((s) => ({ ...s, [id]: "evaluating…" }));
-    try {
-      const res = await api.post<EvaluateResult>(`/strategies/${id}/evaluate/`);
-      setEvalState((s) => ({ ...s, [id]: res.data.status }));
-      await load();
-    } catch (err) {
-      setEvalState((s) => ({ ...s, [id]: extractError(err) }));
-    } finally {
-      setRowBusy((s) => ({ ...s, [id]: false }));
-    }
+    evaluate.mutate(id, {
+      onSuccess: (data) => setEvalState((s) => ({ ...s, [id]: data.status })),
+      onError: (err) => setEvalState((s) => ({ ...s, [id]: extractError(err) })),
+    });
   };
 
-  const runReplay = async (id: string) => {
-    setRowBusy((s) => ({ ...s, [id]: true }));
-    try {
-      const res = await api.post<ReplayResult>(`/strategies/${id}/replay/`, { days: 365 });
-      setReplay((s) => ({ ...s, [id]: res.data }));
-    } catch (err) {
-      setReplay((s) => ({ ...s, [id]: { error: extractError(err) } }));
-    } finally {
-      setRowBusy((s) => ({ ...s, [id]: false }));
-    }
-  };
-
-  const remove = async (id: string) => {
-    setRowBusy((s) => ({ ...s, [id]: true }));
-    try {
-      await api.delete(`/strategies/${id}/`);
-      await load();
-    } catch (err) {
-      setError(extractError(err));
-    } finally {
-      setRowBusy((s) => ({ ...s, [id]: false }));
-    }
-  };
+  const rows = strategies.data ?? [];
+  const busyId = evaluate.isPending ? evaluate.variables : remove.isPending ? remove.variables : null;
 
   return (
     <div className="stack">
       <section className="card">
         <div className="card-head">
           <h2 className="card-title">Strategies</h2>
-          <button className="btn ghost" onClick={() => void load()} disabled={loading}>
-            {loading ? "Refreshing…" : "Refresh"}
+          <button
+            className="btn ghost"
+            onClick={() => void strategies.refetch()}
+            disabled={strategies.isFetching}
+          >
+            {strategies.isFetching ? "Refreshing…" : "Refresh"}
           </button>
         </div>
 
-        {error && <div className="alert error">{error}</div>}
+        {strategies.isError && <div className="alert error">{extractError(strategies.error)}</div>}
+        {remove.isError && <div className="alert error">{extractError(remove.error)}</div>}
 
-        {strategies.length === 0 && !loading ? (
+        {rows.length === 0 && !strategies.isLoading ? (
           <p className="muted">No strategies yet. Create one below.</p>
         ) : (
           <div className="table-scroll">
@@ -134,8 +81,9 @@ export default function StrategiesPanel() {
                 </tr>
               </thead>
               <tbody>
-                {strategies.map((s) => {
-                  const rep = replay[s.id];
+                {rows.map((s) => {
+                  const busy = busyId === s.id;
+                  const open = openReplayId === s.id;
                   return (
                     <Fragment key={s.id}>
                       <tr>
@@ -156,31 +104,32 @@ export default function StrategiesPanel() {
                         <td className="num actions">
                           <button
                             className="btn small"
-                            onClick={() => void evaluate(s.id)}
-                            disabled={rowBusy[s.id]}
+                            onClick={() => runEvaluate(s.id)}
+                            disabled={busy}
                           >
                             Evaluate
                           </button>
                           <button
                             className="btn small"
-                            onClick={() => void runReplay(s.id)}
-                            disabled={rowBusy[s.id]}
+                            onClick={() => setOpenReplayId(open ? null : s.id)}
                             title="Replay this condition over history — when would it have fired?"
                           >
-                            Replay
+                            {open ? "Hide replay" : "Replay"}
                           </button>
                           <button
                             className="btn small danger"
-                            onClick={() => void remove(s.id)}
-                            disabled={rowBusy[s.id]}
+                            onClick={() => remove.mutate(s.id)}
+                            disabled={busy}
                           >
                             Delete
                           </button>
                         </td>
                       </tr>
-                      {rep && (
+                      {open && (
                         <tr className="replay-row">
-                          <td colSpan={7}>{renderReplay(rep)}</td>
+                          <td colSpan={7}>
+                            <ReplayPanel strategyId={s.id} />
+                          </td>
                         </tr>
                       )}
                     </Fragment>
@@ -212,9 +161,11 @@ export default function StrategiesPanel() {
         </div>
 
         {builder === "form" ? (
-          <StrategyForm onCreated={() => void load()} />
+          <StrategyForm onCreated={onCreated} />
         ) : (
-          <StrategyGraphBuilder onCreated={() => void load()} />
+          <Suspense fallback={<p className="muted">Loading graph builder…</p>}>
+            <StrategyGraphBuilder onCreated={onCreated} />
+          </Suspense>
         )}
       </section>
     </div>

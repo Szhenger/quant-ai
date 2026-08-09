@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuthStore } from "./store/auth";
+import { useUnreadCount } from "./api/hooks";
+import { useAlertsSocket } from "./realtime/useAlertsSocket";
 import LoginPage from "./pages/LoginPage";
 import MarketsPanel from "./components/MarketsPanel";
 import StrategiesPanel from "./components/StrategiesPanel";
@@ -13,28 +15,20 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "alerts", label: "Alerts" },
 ];
 
-export default function App() {
-  const access = useAuthStore((s) => s.access);
-  const username = useAuthStore((s) => s.username);
+function Workspace() {
   const workspaces = useAuthStore((s) => s.workspaces);
   const workspaceId = useAuthStore((s) => s.workspaceId);
   const setWorkspace = useAuthStore((s) => s.setWorkspace);
-  const loadWorkspaces = useAuthStore((s) => s.loadWorkspaces);
+  const username = useAuthStore((s) => s.username);
   const logout = useAuthStore((s) => s.logout);
 
   const [tab, setTab] = useState<Tab>("markets");
 
-  // After a page refresh the persisted store rehydrates access/workspaceId but not
-  // the workspaces array — reload it so the workspace switcher reappears.
-  useEffect(() => {
-    if (access && workspaces.length === 0) {
-      void loadWorkspaces();
-    }
-  }, [access, workspaces.length, loadWorkspaces]);
-
-  if (!access) {
-    return <LoginPage />;
-  }
+  // One socket for the whole session: alerts stream into the query cache on
+  // every tab, and the sidebar badge stays live without the Alerts panel mounted.
+  useAlertsSocket();
+  const { data: unread } = useUnreadCount();
+  const unreadCount = unread?.unread ?? 0;
 
   return (
     <div className="shell">
@@ -50,6 +44,9 @@ export default function App() {
               onClick={() => setTab(t.key)}
             >
               {t.label}
+              {t.key === "alerts" && unreadCount > 0 && (
+                <span className="badge new nav-badge">{unreadCount > 99 ? "99+" : unreadCount}</span>
+              )}
             </button>
           ))}
         </nav>
@@ -82,9 +79,10 @@ export default function App() {
           </div>
         </header>
 
-        {/* Keying on workspaceId remounts the active panel when the user switches
-            workspace, forcing a fresh fetch and a WebSocket reconnect to the new
-            workspace's channel (panels otherwise fetch only on mount). */}
+        {/* Query keys are namespaced by workspace id, so switching workspace
+            reads a different cache namespace; keying the content remounts the
+            panels so their local UI state (selected ticker, open replay row)
+            resets with it. */}
         <main className="content" key={workspaceId ?? "none"}>
           {tab === "markets" && <MarketsPanel />}
           {tab === "strategies" && <StrategiesPanel />}
@@ -93,4 +91,23 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+export default function App() {
+  const access = useAuthStore((s) => s.access);
+  const workspaces = useAuthStore((s) => s.workspaces);
+  const loadWorkspaces = useAuthStore((s) => s.loadWorkspaces);
+
+  // After a page refresh the persisted store rehydrates access/workspaceId but not
+  // the workspaces array — reload it so the workspace switcher reappears.
+  useEffect(() => {
+    if (access && workspaces.length === 0) {
+      void loadWorkspaces();
+    }
+  }, [access, workspaces.length, loadWorkspaces]);
+
+  if (!access) {
+    return <LoginPage />;
+  }
+  return <Workspace />;
 }
