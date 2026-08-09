@@ -1,6 +1,6 @@
 # QuantAI
 
-### An AI-powered quantitative-research workspace — *and* a course that teaches you the quant finance inside it, from first principles.
+### An AI-powered Quantitative-Research Workspace.
 
 Alright. Here's the deal.
 
