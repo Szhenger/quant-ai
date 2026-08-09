@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { AlertPages, markAllRead, markOneRead, prependAlert } from "./merge";
+import {
+  AlertPages,
+  markAllRead,
+  markOneRead,
+  markUnread,
+  prependAlert,
+  unreadIds,
+} from "./merge";
 import type { Alert } from "../api/types";
 
 function alert(id: string, is_read = false): Alert {
@@ -74,5 +81,26 @@ describe("read-state transitions", () => {
     for (const page of out.pages) {
       expect(page.results.every((a) => a.is_read)).toBe(true);
     }
+  });
+
+  it("unreadIds collects unread ids across pages", () => {
+    const data = pages(["a", "b"], ["c"]);
+    data.pages[0]!.results[1] = alert("b", true); // b already read
+    expect(unreadIds(data)).toEqual(["a", "c"]);
+  });
+
+  it("rollback via markUnread preserves alerts that arrived mid-mutation", () => {
+    // Optimistically mark everything read, then a socket alert lands, then
+    // the mutation fails. Rolling back must not delete the live alert.
+    const before = pages(["a", "b"]);
+    const snapshot = unreadIds(before);
+    const optimistic = markAllRead(before);
+    const withLive = prependAlert(optimistic, alert("live"));
+    const rolledBack = markUnread(withLive, snapshot);
+
+    const byId = Object.fromEntries(
+      rolledBack.pages.flatMap((p) => p.results.map((a) => [a.id, a.is_read])),
+    );
+    expect(byId).toEqual({ live: false, a: false, b: false });
   });
 });

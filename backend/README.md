@@ -37,10 +37,16 @@ lives in `core/caching.py` + the views that use it:
   are pure functions of their inputs plus the provider's bars, so the finished payload is
   cached fleet-wide in Redis. The subtle part is the *stampede*: when a hot key expires,
   every concurrent request would recompute at once. `cached_compute` takes a flight lock
-  (`cache.add`, the same atomic primitive as the eval lock) so exactly one request computes
-  and everyone else adopts the published answer — with a bounded wait and a compute-yourself
-  fallback if the flight holder dies. Replay keys are **content-addressed** (condition tree +
-  ticker + window, *not* strategy id), so identical conditions share one entry.
+  (`cache.add`, the same atomic primitive as the eval lock); within a process, Django's ASGI
+  handler already serializes sync views onto one thread, so in-process stampedes can't happen
+  at all. When the flight is held by *another* process we deliberately compute anyway rather
+  than sleep-wait — on that shared thread, a sleeping request would block every other request
+  in its process, which is far worse than one duplicate computation (waiting is opt-in via
+  `wait_budget` for callers that own their thread, like Celery workers). Replay keys are
+  **content-addressed** (condition tree + ticker + window, *not* strategy id), so identical
+  conditions share one entry. Payloads computed from **synthetic fallback data** are cached
+  only briefly (`SYNTHETIC_CACHE_TTL`), so a connectivity blip never pins fabricated numbers
+  for the full TTL.
 - **Conditional GET.** Both endpoints send a strong `ETag`; a matching `If-None-Match` gets
   an empty `304` — revalidation costs a hash compare, not a recompute or a re-download.
 - **Gzip.** Indicator/replay payloads are large, repetitive JSON; `GZipMiddleware` cuts them
@@ -87,7 +93,7 @@ sqlite, runs Celery **eagerly** (tasks execute inline, no broker), uses an in-me
 layer, and forces the **synthetic** market — so the suite is deterministic and hermetic.
 
 ```bash
-pytest        # 117 tests, all offline
+pytest        # 121 tests, all offline
 ```
 
 The tests double as a guided tour of the engine: `test_indicators.py` checks the
@@ -105,6 +111,7 @@ that matter (full list in `.env.example`):
 |---|---|---|
 | `MARKETDATA_PROVIDER` | `auto` | `auto` uses `yfinance` when it's importable/online, else falls back to `synthetic`. Force `synthetic` for reproducible, offline data; `yfinance` for real quotes. |
 | `ANALYSIS_CACHE_TTL` / `REPLAY_CACHE_TTL` | `120` / `600` | Seconds the finished analysis/replay payloads live in the fleet-wide compute cache (`core/caching.py`). Analysis is an intraday snapshot (short); a replay only changes when the day rolls or the condition tree does (longer). |
+| `SYNTHETIC_CACHE_TTL` | `30` | Seconds a payload computed from synthetic *fallback* data may live in that cache — kept short so real data replaces it as soon as connectivity returns. |
 | `ANTHROPIC_API_KEY` | *(empty)* | **Optional.** Set it to switch on the real Chapter 7 AI layer; leave it empty and `ai` degrades to a no-op. No key needed to learn. |
 | `REDIS_URL` | `redis://localhost:6379/0` | Backs Channels (alert delivery), the Celery broker/result store, **and** the shared cache that holds the per-strategy evaluation lock ([Ch. 10](../math/10-concurrency-and-safety.md)). Must be a shared backend, not per-process memory. |
 | `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | `quantai` / `quantai` / `quantai` / `localhost` / `5432` | The Postgres connection for the live system. (Tests ignore these — they use sqlite.) |

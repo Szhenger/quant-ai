@@ -78,12 +78,68 @@ def test_cached_compute_waiter_picks_up_published_value():
 
 
 def test_cached_compute_falls_back_when_flight_holder_dies():
-    """If the computing worker never publishes, a waiter computes itself
-    (bounded waiting — never a deadlock, never an error)."""
+    """If the computing worker never publishes, an opt-in waiter still computes
+    itself after its budget (bounded waiting — never a deadlock or an error)."""
     key = stable_key("t", {"flight": 2})
     cache.add(f"{key}:flight", "1", 30)  # holder that will never publish
-    value, from_cache = cached_compute(key, 60, lambda: "fallback", wait_budget=0)
+    value, from_cache = cached_compute(key, 60, lambda: "fallback", wait_budget=0.2)
     assert value == "fallback" and from_cache is False
+
+
+def test_cached_compute_default_never_sleeps_on_foreign_flight():
+    """Web-tier default: a flight held by another process means compute NOW.
+    Sleeping would block the ASGI process's single sync-view thread."""
+    key = stable_key("t", {"flight": 3})
+    cache.add(f"{key}:flight", "someone-else", 30)
+    start = time.monotonic()
+    value, from_cache = cached_compute(key, 60, lambda: "mine")
+    assert value == "mine" and from_cache is False
+    assert time.monotonic() - start < 0.5  # no polling loop on the default path
+
+
+def test_cached_compute_release_is_owned():
+    """A holder whose compute outlived the lock TTL must not delete the lock a
+    later request has since claimed."""
+    key = stable_key("t", {"flight": 4})
+    flight_key = f"{key}:flight"
+
+    def compute():
+        # Simulate: our lock expired mid-compute and another request re-claimed
+        # the flight with its own token.
+        cache.set(flight_key, "the-new-holder", 30)
+        return "slow-result"
+
+    value, _ = cached_compute(key, 60, compute)
+    assert value == "slow-result"
+    assert cache.get(flight_key) == "the-new-holder"  # their lock survived us
+
+
+def test_cached_compute_callable_ttl_uses_computed_value():
+    """ttl may be callable(value) -> int, so degraded (synthetic) payloads can
+    be cached for less time than good ones."""
+    import core.caching as caching_mod
+
+    recorded = {}
+    real_set = cache.set
+
+    class RecordingCache:
+        def __getattr__(self, name):
+            return getattr(cache, name)
+
+        def set(self, key, value, timeout=None):
+            recorded[key] = timeout
+            return real_set(key, value, timeout)
+
+    original = caching_mod.cache
+    caching_mod.cache = RecordingCache()
+    try:
+        key = stable_key("t", {"ttl": "callable"})
+        ttl = lambda v: 7 if v["synthetic"] else 600  # noqa: E731
+        value, _ = cached_compute(key, ttl, lambda: {"synthetic": True})
+        assert value == {"synthetic": True}
+        assert recorded[key] == 7
+    finally:
+        caching_mod.cache = original
 
 
 # --------------------------------------------------------------------------
@@ -126,6 +182,26 @@ def test_analysis_gzip_on_the_wire(auth_client):
     resp = auth_client.get("/api/v1/markets/AAPL/analysis/", HTTP_ACCEPT_ENCODING="gzip")
     assert resp.status_code == 200
     assert resp.get("Content-Encoding") == "gzip"
+
+
+def test_views_cache_synthetic_payloads_briefly(auth_client, monkeypatch, settings):
+    """The views hand cached_compute a provenance-aware TTL: synthetic fallback
+    payloads live SYNTHETIC_CACHE_TTL seconds, real ones the full TTL."""
+    captured = {}
+    real = views_mod.cached_compute
+
+    def spying(key, ttl, compute, **kwargs):
+        captured["ttl"] = ttl
+        return real(key, ttl, compute, **kwargs)
+
+    monkeypatch.setattr(views_mod, "cached_compute", spying)
+    resp = auth_client.get("/api/v1/markets/AAPL/analysis/")
+    assert resp.status_code == 200
+
+    ttl = captured["ttl"]
+    assert callable(ttl)
+    assert ttl({"synthetic": True}) == settings.SYNTHETIC_CACHE_TTL
+    assert ttl({"synthetic": False}) == settings.ANALYSIS_CACHE_TTL
 
 
 # --------------------------------------------------------------------------

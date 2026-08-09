@@ -36,21 +36,29 @@ export function useAlertsSocket(): void {
     }
 
     const socket = new ReconnectingAlertSocket({
-      // Read the CURRENT token at each connect: refreshed tokens are picked up
-      // on reconnect without tearing the socket down at every rotation.
+      // Token: read the CURRENT value at each connect, so refreshed tokens are
+      // picked up on reconnect without tearing the socket down at every
+      // rotation. Workspace: pinned to THIS effect's value — a reconnect
+      // firing mid-switch must not attach this instance to another tenant's
+      // channel (the effect re-runs to build the new workspace's socket).
       buildUrl: () => {
-        const { workspaceId: ws, access } = useAuthStore.getState();
-        if (!ws || !access) return null;
+        const { access } = useAuthStore.getState();
+        if (!access) return null;
         const base = window.location.origin.replace(/^http/, "ws");
-        return `${base}/ws/alerts/${ws}/?token=${encodeURIComponent(access)}`;
+        return `${base}/ws/alerts/${workspaceId}/?token=${encodeURIComponent(access)}`;
       },
       onAlert: (raw) => {
         const alert = raw as Alert;
-        const ws = useAuthStore.getState().workspaceId;
-        if (!ws) return;
-        qc.setQueryData<AlertPages>(keys.alerts(ws), (d) => (d ? prependAlert(d, alert) : d));
+        // Key by THIS effect's workspace — the one the socket is subscribed
+        // to — never the store's current value: during an A -> B switch a
+        // frame can arrive after the store flips but before this effect's
+        // cleanup closes A's socket, and reading the store then would write
+        // A's alert into B's cache namespace.
+        qc.setQueryData<AlertPages>(keys.alerts(workspaceId), (d) =>
+          d ? prependAlert(d, alert) : d,
+        );
         if (!alert.is_read) {
-          qc.setQueryData<UnreadCount>(keys.unread(ws), (d) =>
+          qc.setQueryData<UnreadCount>(keys.unread(workspaceId), (d) =>
             d ? { unread: d.unread + 1 } : { unread: 1 },
           );
         }

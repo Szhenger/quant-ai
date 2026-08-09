@@ -47,3 +47,25 @@ export function markAllRead(data: AlertPages): AlertPages {
     })),
   };
 }
+
+/** Ids of every currently-unread alert — the snapshot a rollback needs. */
+export function unreadIds(data: AlertPages): string[] {
+  return data.pages.flatMap((p) => p.results.filter((a) => !a.is_read).map((a) => a.id));
+}
+
+/**
+ * Rollback for optimistic read-marking. Applied to the CURRENT cache rather
+ * than restoring a pre-mutation snapshot: a snapshot restore would silently
+ * delete any socket-delivered alert that arrived while the mutation was in
+ * flight. Un-marking exactly the ids we optimistically marked loses nothing.
+ */
+export function markUnread(data: AlertPages, ids: readonly string[]): AlertPages {
+  const wanted = new Set(ids);
+  return {
+    ...data,
+    pages: data.pages.map((p) => ({
+      ...p,
+      results: p.results.map((a) => (wanted.has(a.id) ? { ...a, is_read: false } : a)),
+    })),
+  };
+}

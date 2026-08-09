@@ -159,6 +159,11 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOWED_ORIGINS = os.environ.get(
     "CORS_ALLOWED_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
 ).split(",")
+# Every workspace-scoped request carries X-Workspace-ID; without this the
+# browser's CORS preflight rejects it for any cross-origin frontend.
+from corsheaders.defaults import default_headers  # noqa: E402
+
+CORS_ALLOW_HEADERS = [*default_headers, "x-workspace-id"]
 
 # --- Market data provider ----------------------------------------------------
 # auto -> use yfinance when importable/online, else deterministic synthetic data.
@@ -170,6 +175,9 @@ MARKETDATA_PROVIDER = os.environ.get("MARKETDATA_PROVIDER", "auto")
 # and the condition tree — it only changes when the day rolls or the tree does).
 ANALYSIS_CACHE_TTL = int(os.environ.get("ANALYSIS_CACHE_TTL", "120"))
 REPLAY_CACHE_TTL = int(os.environ.get("REPLAY_CACHE_TTL", "600"))
+# Payloads computed from synthetic *fallback* data (provider degraded) live
+# only briefly, so real data replaces them as soon as connectivity returns.
+SYNTHETIC_CACHE_TTL = int(os.environ.get("SYNTHETIC_CACHE_TTL", "30"))
 
 # Optional local bar cache (Parquet files queried with DuckDB). Off by default;
 # when on, real bars are cached under MARKETDATA_CACHE_DIR for MARKETDATA_CACHE_TTL

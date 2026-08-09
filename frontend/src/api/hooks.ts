@@ -14,8 +14,9 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import api from "./client";
+import { relativizeCursor } from "./cursor";
 import { useAuthStore } from "../store/auth";
-import { markAllRead, markOneRead } from "../realtime/merge";
+import { markAllRead, markOneRead, markUnread, unreadIds } from "../realtime/merge";
 import type {
   Alert,
   CursorPage,
@@ -133,9 +134,9 @@ export function useAlertsInfinite() {
     queryFn: ({ pageParam, signal }) =>
       api.get<CursorPage<Alert>>(pageParam, { signal }).then((r) => r.data),
     initialPageParam: "/alerts/",
-    // The server hands back an absolute cursor URL; axios uses it verbatim
-    // (same-origin), and the auth/workspace interceptors still apply.
-    getNextPageParam: (last) => last.next,
+    // DRF's cursor link is absolute and host-based; relativize it so every
+    // page stays same-origin (through the dev proxy) — see api/cursor.ts.
+    getNextPageParam: (last) => relativizeCursor(last.next),
   });
 }
 
@@ -160,18 +161,19 @@ export function useMarkRead() {
     mutationFn: (id: string) => api.post(`/alerts/${id}/mark-read/`),
     onMutate: async (id) => {
       await qc.cancelQueries({ queryKey: keys.alerts(ws) });
-      const prevAlerts = qc.getQueryData<AlertPages>(keys.alerts(ws));
-      const prevUnread = qc.getQueryData<UnreadCount>(keys.unread(ws));
+      await qc.cancelQueries({ queryKey: keys.unread(ws) });
       qc.setQueryData<AlertPages>(keys.alerts(ws), (d) => (d ? markOneRead(d, id) : d));
       qc.setQueryData<UnreadCount>(keys.unread(ws), (d) =>
         d ? { unread: Math.max(0, d.unread - 1) } : d,
       );
-      return { prevAlerts, prevUnread };
     },
-    onError: (_e, _id, ctx) => {
-      if (ctx?.prevAlerts) qc.setQueryData(keys.alerts(ws), ctx.prevAlerts);
-      if (ctx?.prevUnread) qc.setQueryData(keys.unread(ws), ctx.prevUnread);
+    // Rollback by inverse transform on the CURRENT cache, never by snapshot
+    // restore: a snapshot would delete socket-delivered alerts that arrived
+    // while the POST was in flight (see realtime/merge.ts).
+    onError: (_e, id) => {
+      qc.setQueryData<AlertPages>(keys.alerts(ws), (d) => (d ? markUnread(d, [id]) : d));
     },
+    // Authoritative reconciliation for the counter either way.
     onSettled: () => qc.invalidateQueries({ queryKey: keys.unread(ws) }),
   });
 }
@@ -183,15 +185,20 @@ export function useMarkAllRead() {
     mutationFn: () => api.post("/alerts/mark-all-read/"),
     onMutate: async () => {
       await qc.cancelQueries({ queryKey: keys.alerts(ws) });
-      const prevAlerts = qc.getQueryData<AlertPages>(keys.alerts(ws));
-      const prevUnread = qc.getQueryData<UnreadCount>(keys.unread(ws));
+      await qc.cancelQueries({ queryKey: keys.unread(ws) });
+      const prev = qc.getQueryData<AlertPages>(keys.alerts(ws));
+      // Snapshot only the ids we are about to flip — the rollback un-flips
+      // exactly those on whatever the cache holds by then.
+      const flipped = prev ? unreadIds(prev) : [];
       qc.setQueryData<AlertPages>(keys.alerts(ws), (d) => (d ? markAllRead(d) : d));
       qc.setQueryData<UnreadCount>(keys.unread(ws), { unread: 0 });
-      return { prevAlerts, prevUnread };
+      return { flipped };
     },
     onError: (_e, _v, ctx) => {
-      if (ctx?.prevAlerts) qc.setQueryData(keys.alerts(ws), ctx.prevAlerts);
-      if (ctx?.prevUnread) qc.setQueryData(keys.unread(ws), ctx.prevUnread);
+      const flipped = ctx?.flipped ?? [];
+      if (flipped.length > 0) {
+        qc.setQueryData<AlertPages>(keys.alerts(ws), (d) => (d ? markUnread(d, flipped) : d));
+      }
     },
     onSettled: () => qc.invalidateQueries({ queryKey: keys.unread(ws) }),
   });

@@ -22,6 +22,17 @@ from .serializers import StrategySerializer, AlertSerializer
 from .compiler import compile_graph, GraphCompilationError
 
 
+def _provenance_ttl(base_ttl):
+    """TTL chooser for cached market payloads: results computed from synthetic
+    fallback data get a short life, so a connectivity blip never pins
+    fabricated numbers in the fleet-wide cache for the full TTL."""
+    def ttl(payload):
+        if payload.get("synthetic"):
+            return settings.SYNTHETIC_CACHE_TTL
+        return base_ttl
+    return ttl
+
+
 def _int_param(request, name, default):
     raw = request.query_params.get(name)
     if raw is None:
@@ -131,7 +142,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
             "cooldown_bars": cooldown_bars,
             "provider": settings.MARKETDATA_PROVIDER,
         })
-        replayed, _ = cached_compute(key, settings.REPLAY_CACHE_TTL, compute)
+        replayed, _ = cached_compute(key, _provenance_ttl(settings.REPLAY_CACHE_TTL), compute)
 
         payload = {
             "strategy_id": str(strategy.id),
@@ -219,7 +230,7 @@ class MarketAnalysisView(APIView):
             "provider": settings.MARKETDATA_PROVIDER,
         })
         payload, _ = cached_compute(
-            key, settings.ANALYSIS_CACHE_TTL,
+            key, _provenance_ttl(settings.ANALYSIS_CACHE_TTL),
             lambda: analyze_market(symbol, days=days),
         )
         return conditional_response(request, payload)
