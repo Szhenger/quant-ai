@@ -9,7 +9,7 @@ db.sqlite3
 
 # Env
 .env
-backend/.env
+runtime/.env
 
 # Node / frontend
 node_modules/
@@ -27,4 +27,4 @@ dist/
 .devdb/
 
 # Collected static assets (whitenoise serves these in prod)
-backend/staticfiles/
+runtime/staticfiles/
