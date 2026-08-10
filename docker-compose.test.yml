@@ -15,7 +15,7 @@ services:
       retries: 15
 
   test:
-    build: ./backend
+    build: ./runtime
     environment:
       DJANGO_SETTINGS_MODULE: config.test_settings
       DB_HOST: test-db
