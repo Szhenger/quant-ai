@@ -1,6 +1,6 @@
 # QuantAI
 
-### An AI-powered quantitative-research workspace — *and* a course that teaches you the quant finance inside it, from first principles.
+### An AI-powered Quantitative-Research Workspace.
 
 Alright. Here's the deal.
 
@@ -8,9 +8,9 @@ Most software you download is a black box. You run it, it does a thing, and if y
 
 The promise is specific. If you are a **math undergraduate** who has seen
 
-- basic **calculus** (derivatives, a little bit of limits, the idea of an exponential),
+- **basic calculus** (derivatives, a little bit of limits, the idea of an exponential),
 - **linear algebra** (vectors, dot products, means as sums),
-- **elementary discrete probability** (outcomes, expectation, variance, independence),
+- **discrete probability** (outcomes, expectation, variance, independence),
 
 and you have taken something like **[CS50x](https://cs50.harvard.edu/x/)** (you can read code, you know what a function and a loop and an HTTP request are), then by the end of this course you will understand quantitative finance the way a practitioner does: not as a bag of tricks, but as a small number of ideas about **randomness, information, and time**, made precise, made computable, and made safe to run in production.
 
@@ -75,7 +75,7 @@ Prefer no Docker? [`backend/README.md`](backend/README.md) has the local recipe,
 Want to see the machinery without the ceremony? The tests are a guided tour:
 
 ```bash
-cd backend && pip install -r requirements.txt && pytest    # 47 tests, all offline
+cd backend && pip install -r requirements.txt && pytest    # 121 tests, all offline
 ```
 
 ---

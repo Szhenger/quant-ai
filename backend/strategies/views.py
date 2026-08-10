@@ -1,10 +1,13 @@
+from django.conf import settings
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
+from rest_framework.pagination import CursorPagination
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from core.caching import cached_compute, conditional_response, stable_key
 from core.workspaces import resolve_active_workspace
 from marketdata import (
     INDICATOR_SPECS,
@@ -18,6 +21,17 @@ from marketdata import (
 from .models import Strategy, Alert
 from .serializers import StrategySerializer, AlertSerializer
 from .compiler import compile_graph, GraphCompilationError
+
+
+def _provenance_ttl(base_ttl):
+    """TTL chooser for cached market payloads: results computed from synthetic
+    fallback data get a short life, so a connectivity blip never pins
+    fabricated numbers in the fleet-wide cache for the full TTL."""
+    def ttl(payload):
+        if payload.get("synthetic"):
+            return settings.SYNTHETIC_CACHE_TTL
+        return base_ttl
+    return ttl
 
 
 def _int_param(request, name, default):
@@ -41,6 +55,14 @@ class StrategyViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         workspace = resolve_active_workspace(self.request)
         return Strategy.objects.filter(workspace=workspace)
+
+    def get_throttles(self):
+        # Replay and manual evaluation do real work (provider fetch + indicator
+        # sweep, and evaluate may call the LLM); rate-limit them under the
+        # "compute" scope on top of the global user throttle.
+        if getattr(self, "action", None) in ("replay", "evaluate"):
+            self.throttle_scope = "compute"
+        return super().get_throttles()
 
     def perform_create(self, serializer):
         workspace = resolve_active_workspace(self.request)
@@ -123,8 +145,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
             "strategy_id": str(strategy.id),
             "ticker": strategy.ticker,
             "condition": describe_tree(tree),
-            "provider": "synthetic" if series.synthetic else provider.name,
-            "synthetic": series.synthetic,
             "cooldown_bars": cooldown_bars,
             "bars": len(closes),
             "fire_count": len(fires),
@@ -136,6 +156,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
 
 class AlertViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = AlertSerializer
+    pagination_class = AlertCursorPagination
 
     def get_queryset(self):
         workspace = resolve_active_workspace(self.request)
@@ -174,7 +195,20 @@ class MarketAnalysisView(APIView):
         except ValueError:
             days = 180
         days = max(30, min(days, 730))
-        return Response(analyze_market(ticker.upper(), days=days))
+        symbol = ticker.upper()
+
+        # Market analysis is a pure function of public market data — the cache
+        # is deliberately shared across users and workspaces.
+        key = stable_key("analysis", {
+            "ticker": symbol,
+            "days": days,
+            "provider": settings.MARKETDATA_PROVIDER,
+        })
+        payload, _ = cached_compute(
+            key, _provenance_ttl(settings.ANALYSIS_CACHE_TTL),
+            lambda: analyze_market(symbol, days=days),
+        )
+        return conditional_response(request, payload)
 
 
 class IndicatorCatalogView(APIView):

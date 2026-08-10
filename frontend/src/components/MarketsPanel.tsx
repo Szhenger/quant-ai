@@ -10,13 +10,11 @@ function formatValue(v: number | null): string {
 }
 
 export default function MarketsPanel() {
+  // `input` is what the user is typing; `ticker` is the committed symbol the
+  // analysis query keys on. Re-clicking a cached ticker renders instantly from
+  // cache while React Query revalidates in the background.
+  const [input, setInput] = useState("AAPL");
   const [ticker, setTicker] = useState("AAPL");
-  const [analysis, setAnalysis] = useState<MarketAnalysis | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const [watchlist, setWatchlist] = useState<WatchedTicker[]>([]);
-  const [wlError, setWlError] = useState<string | null>(null);
   const [newTicker, setNewTicker] = useState("");
   const [newNote, setNewNote] = useState("");
   const [addingWatch, setAddingWatch] = useState(false);
@@ -30,58 +28,40 @@ export default function MarketsPanel() {
     }
   };
 
-  useEffect(() => {
-    loadWatchlist();
-    // Kick off an initial analysis for a friendlier first view.
-    void analyze("AAPL");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const analysis = useAnalysis(ticker);
+  const watchlist = useWatchlist();
+  const addWatch = useAddWatch();
 
-  const analyze = async (symbol: string) => {
+  const commit = (symbol: string) => {
     const sym = symbol.trim().toUpperCase();
     if (!sym) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.get<MarketAnalysis>(
-        `/markets/${encodeURIComponent(sym)}/analysis/`,
-        { params: { days: 180 } },
-      );
-      setAnalysis(res.data);
-      setTicker(sym);
-    } catch (err) {
-      setError(extractError(err));
-      setAnalysis(null);
-    } finally {
-      setLoading(false);
-    }
+    setInput(sym);
+    setTicker(sym);
   };
 
   const onAnalyze = (e: FormEvent) => {
     e.preventDefault();
-    void analyze(ticker);
+    commit(input);
   };
 
-  const onAddWatch = async (e: FormEvent) => {
+  const onAddWatch = (e: FormEvent) => {
     e.preventDefault();
     const t = newTicker.trim().toUpperCase();
     if (!t) return;
-    setAddingWatch(true);
-    setWlError(null);
-    try {
-      await api.post("/watchlist/", { ticker: t, note: newNote.trim() });
-      setNewTicker("");
-      setNewNote("");
-      await loadWatchlist();
-    } catch (err) {
-      setWlError(extractError(err));
-    } finally {
-      setAddingWatch(false);
-    }
+    addWatch.mutate(
+      { ticker: t, note: newNote.trim() },
+      {
+        onSuccess: () => {
+          setNewTicker("");
+          setNewNote("");
+        },
+      },
+    );
   };
 
-  const indicatorRows = analysis
-    ? Object.entries(analysis.indicators).map(([key, val]) => ({ key, val }))
+  const data = analysis.data;
+  const indicatorRows = data
+    ? Object.entries(data.indicators).map(([key, val]) => ({ key, val }))
     : [];
 
   return (
@@ -91,29 +71,29 @@ export default function MarketsPanel() {
         <form className="row gap" onSubmit={onAnalyze}>
           <input
             className="grow"
-            value={ticker}
-            onChange={(e) => setTicker(e.target.value.toUpperCase())}
+            value={input}
+            onChange={(e) => setInput(e.target.value.toUpperCase())}
             placeholder="Ticker e.g. AAPL"
             aria-label="Ticker"
           />
-          <button className="btn primary" type="submit" disabled={loading}>
-            {loading ? "Analyzing…" : "Analyze"}
+          <button className="btn primary" type="submit" disabled={analysis.isLoading}>
+            {analysis.isFetching ? "Analyzing…" : "Analyze"}
           </button>
         </form>
 
-        {error && <div className="alert error">{error}</div>}
+        {analysis.isError && <div className="alert error">{extractError(analysis.error)}</div>}
 
-        {analysis && (
+        {data && (
           <>
             <div className="analysis-head">
               <div>
-                <div className="analysis-ticker">{analysis.ticker}</div>
-                <div className="muted">via {analysis.provider}</div>
+                <div className="analysis-ticker">{data.ticker}</div>
+                <div className="muted">via {data.provider}</div>
               </div>
               <div className="analysis-price">
                 <div className="muted">Latest price</div>
                 <div className="price-value">
-                  {analysis.latest_price?.toLocaleString(undefined, {
+                  {data.latest_price?.toLocaleString(undefined, {
                     maximumFractionDigits: 2,
                   })}
                 </div>
@@ -121,10 +101,7 @@ export default function MarketsPanel() {
             </div>
 
             <div className="chart-frame">
-              <LineChart
-                values={analysis.closes}
-                labels={analysis.dates}
-              />
+              <LineChart values={data.closes} labels={data.dates} />
             </div>
 
             <table className="table">
@@ -148,7 +125,7 @@ export default function MarketsPanel() {
           </>
         )}
 
-        {!analysis && !loading && !error && (
+        {!data && !analysis.isLoading && !analysis.isError && (
           <p className="muted">Enter a ticker and press Analyze.</p>
         )}
       </section>
@@ -170,20 +147,24 @@ export default function MarketsPanel() {
             placeholder="Note (optional)"
             aria-label="Watchlist note"
           />
-          <button className="btn" type="submit" disabled={addingWatch}>
-            {addingWatch ? "Adding…" : "Add"}
+          <button className="btn" type="submit" disabled={addWatch.isPending}>
+            {addWatch.isPending ? "Adding…" : "Add"}
           </button>
         </form>
 
-        {wlError && <div className="alert error">{wlError}</div>}
+        {(watchlist.isError || addWatch.isError) && (
+          <div className="alert error">
+            {extractError(watchlist.error ?? addWatch.error)}
+          </div>
+        )}
 
-        {watchlist.length === 0 ? (
+        {(watchlist.data ?? []).length === 0 ? (
           <p className="muted">No tickers followed yet.</p>
         ) : (
           <ul className="watchlist">
-            {watchlist.map((w) => (
+            {(watchlist.data ?? []).map((w) => (
               <li key={w.id}>
-                <button className="link-ticker" onClick={() => void analyze(w.ticker)}>
+                <button className="link-ticker" onClick={() => commit(w.ticker)}>
                   {w.ticker}
                 </button>
                 {w.note && <span className="muted"> — {w.note}</span>}

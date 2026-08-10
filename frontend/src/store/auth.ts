@@ -61,6 +61,9 @@ export const useAuthStore = create<AuthState>()(
           username: null,
           workspaces: [],
         });
+        // Drop every cached server response: the next user on this browser
+        // must never see the previous session's data flash from cache.
+        queryClient.clear();
       },
 
       setWorkspace: (id) => set({ workspaceId: id }),

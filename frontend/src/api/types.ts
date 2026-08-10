@@ -5,6 +5,17 @@ export interface Paginated<T> {
   results: T[];
 }
 
+// Alerts use cursor (keyset) pagination: constant cost per page, no count.
+export interface CursorPage<T> {
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
+export interface UnreadCount {
+  unread: number;
+}
+
 export interface Workspace {
   id: string;
   name: string;
