@@ -52,6 +52,59 @@ def test_synthetic_series_is_never_cached(tmp_path):
     assert store.age_seconds("AAPL") is None
 
 
+def test_write_merges_overlapping_refresh_without_truncating(tmp_path):
+    store = BarStore(root=str(tmp_path))
+    store.write(PriceSeries(
+        "AAPL", [1.0, 2.0, 3.0],
+        ["2026-01-01", "2026-01-02", "2026-01-03"], synthetic=False,
+    ))
+    # A shorter refresh that agrees on the overlap must extend, not truncate.
+    store.write(PriceSeries(
+        "AAPL", [3.0, 4.0], ["2026-01-03", "2026-01-04"], synthetic=False,
+    ))
+    got = store.read("AAPL", days=10)
+    assert got.dates == ["2026-01-01", "2026-01-02", "2026-01-03", "2026-01-04"]
+    assert got.closes == [1.0, 2.0, 3.0, 4.0]
+
+
+def test_write_replaces_when_history_was_readjusted(tmp_path):
+    store = BarStore(root=str(tmp_path))
+    store.write(PriceSeries(
+        "AAPL", [10.0, 20.0], ["2026-01-01", "2026-01-02"], synthetic=False,
+    ))
+    # Overlap disagrees (e.g. post-split re-adjustment): old bars must be
+    # dropped, never mixed with the new adjustment basis.
+    store.write(PriceSeries(
+        "AAPL", [10.0, 11.0], ["2026-01-02", "2026-01-03"], synthetic=False,
+    ))
+    got = store.read("AAPL", days=10)
+    assert got.dates == ["2026-01-02", "2026-01-03"]
+    assert got.closes == [10.0, 11.0]
+
+
+def test_write_replaces_disjoint_history_instead_of_bridging_a_gap(tmp_path):
+    store = BarStore(root=str(tmp_path))
+    store.write(PriceSeries(
+        "AAPL", [1.0, 2.0], ["2026-01-01", "2026-01-02"], synthetic=False,
+    ))
+    store.write(PriceSeries(
+        "AAPL", [7.0, 8.0], ["2026-06-01", "2026-06-02"], synthetic=False,
+    ))
+    got = store.read("AAPL", days=10)
+    assert got.dates == ["2026-06-01", "2026-06-02"]
+
+
+def test_write_leaves_no_temp_files(tmp_path):
+    store = BarStore(root=str(tmp_path))
+    store.write(PriceSeries(
+        "AAPL", [1.0, 2.0], ["2026-01-01", "2026-01-02"], synthetic=False,
+    ))
+    store.write(PriceSeries(
+        "AAPL", [2.0, 3.0], ["2026-01-02", "2026-01-03"], synthetic=False,
+    ))
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["AAPL.parquet"]
+
+
 def test_caching_provider_serves_second_call_from_cache(tmp_path):
     primary = _CountingProvider(rows=180)
     cp = CachingProvider(primary, store=BarStore(root=str(tmp_path)), ttl_seconds=3600)

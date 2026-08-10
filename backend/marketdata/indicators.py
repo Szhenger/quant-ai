@@ -116,6 +116,18 @@ def _ema(values: List[float], span: int) -> np.ndarray:
     return out
 
 
+def _ema_series(closes: List[float], window: int) -> List[Optional[float]]:
+    """EMA with the first ``window - 1`` bars masked to ``None``: the recursion is
+    seeded at the first close, so early values are biased toward it — unmasked
+    they could fire replay/live conditions on bars that aren't warmed up."""
+    n = len(closes)
+    out: List[Optional[float]] = [None] * n
+    ema = _ema(closes, window)
+    for i in range(window - 1, n):
+        out[i] = float(ema[i])
+    return out
+
+
 def _zscore_series(closes: List[float], window: int) -> List[Optional[float]]:
     out: List[Optional[float]] = [None] * len(closes)
     for i in range(window - 1, len(closes)):
@@ -199,7 +211,7 @@ _BUILDERS = {
     "PCT_CHANGE": lambda c, p: _pct_change_series(c, int(p["window"])),
     "VOLATILITY": lambda c, p: _volatility_series(c, int(p["window"])),
     "SMA": lambda c, p: _sma(c, int(p["window"])),
-    "EMA": lambda c, p: [float(x) for x in _ema(c, int(p["window"]))],
+    "EMA": lambda c, p: _ema_series(c, int(p["window"])),
     "PRICE": lambda c, p: [float(x) for x in c],
 }
 

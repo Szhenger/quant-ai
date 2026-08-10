@@ -115,7 +115,13 @@ class ClaudeClient:
         )
 
         try:
-            client = anthropic.Anthropic(api_key=self.api_key)
+            # Bounded timeout + one retry: the SDK's defaults (10 min, 2 retries)
+            # could outlive the per-strategy eval lock and pin a worker slot.
+            client = anthropic.Anthropic(
+                api_key=self.api_key,
+                timeout=float(getattr(settings, "ANTHROPIC_TIMEOUT_SECONDS", 30.0)),
+                max_retries=1,
+            )
             response = client.messages.create(
                 model=self.model,
                 max_tokens=1024,

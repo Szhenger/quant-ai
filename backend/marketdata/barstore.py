@@ -15,9 +15,12 @@ Design choices:
 from __future__ import annotations
 
 import logging
+import math
+import os
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
+from uuid import uuid4
 
 from django.conf import settings
 
@@ -77,29 +80,63 @@ class BarStore:
             synthetic=False,  # only real bars are ever cached
         )
 
+    def _read_all(self, path: Path) -> Dict[str, float]:
+        """Every cached (date -> close) row at ``path``, or {} if absent/unreadable."""
+        if not path.exists():
+            return {}
+        import duckdb
+
+        try:
+            rows = duckdb.sql(
+                "SELECT date, close FROM read_parquet($p)",
+                params={"p": path.as_posix()},
+            ).fetchall()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Bar store merge-read failed for %s: %s", path, exc)
+            return {}
+        return {str(r[0]): float(r[1]) for r in rows}
+
     def write(self, series: PriceSeries) -> None:
-        """Persist a real price series as Parquet. Synthetic/empty series are ignored."""
+        """Persist a real price series as Parquet. Synthetic/empty series are ignored.
+
+        Safe under concurrent writers: bars are written to a uniquely-named temp
+        file and atomically renamed over the final path, so readers see the old
+        or the new file, never a partial one.
+
+        A refresh that overlaps the existing cache consistently is MERGED, so a
+        short fetch never truncates longer history. If overlapping dates
+        disagree (upstream re-adjusted history, e.g. after a split/dividend) or
+        the ranges are disjoint (a gap), the new series REPLACES the cache —
+        mixing adjustment bases or bridging a hole would corrupt indicators.
+        """
         if not bar_store_available() or series.synthetic or len(series) == 0:
             return
         import duckdb
 
         self.root.mkdir(parents=True, exist_ok=True)
         path = self._path(series.ticker)
+
+        new = dict(zip(series.dates, (float(c) for c in series.closes)))
+        existing = self._read_all(path)
+        overlap = [d for d in new if d in existing]
+        if overlap and all(math.isclose(existing[d], new[d], rel_tol=1e-4) for d in overlap):
+            rows = sorted({**existing, **new}.items())  # ISO dates: lexicographic == chronological
+        else:
+            rows = sorted(new.items())
+
+        tmp = path.with_name(f".{path.name}.{os.getpid()}-{uuid4().hex[:8]}.tmp")
         try:
             con = duckdb.connect()
             try:
                 con.execute("CREATE TABLE bars(date VARCHAR, close DOUBLE)")
-                con.executemany(
-                    "INSERT INTO bars VALUES (?, ?)",
-                    [[d, float(c)] for d, c in zip(series.dates, series.closes)],
-                )
-                con.execute(
-                    "COPY bars TO ? (FORMAT PARQUET)", [path.as_posix()]
-                )
+                con.executemany("INSERT INTO bars VALUES (?, ?)", [[d, c] for d, c in rows])
+                con.execute("COPY bars TO ? (FORMAT PARQUET)", [tmp.as_posix()])
             finally:
                 con.close()
+            os.replace(tmp, path)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Bar store write failed for %s: %s", series.ticker, exc)
+            tmp.unlink(missing_ok=True)
 
 
 class CachingProvider(BaseProvider):

@@ -1,45 +1,135 @@
+import { useEffect, useState } from "react";
+import api, { WS_BASE } from "../api/client";
 import { extractError } from "../api/errors";
-import {
-  useAlertsInfinite,
-  useMarkAllRead,
-  useMarkRead,
-  useUnreadCount,
-} from "../api/hooks";
-import { useRealtimeStore } from "../realtime/useAlertsSocket";
+import { useAuthStore } from "../store/auth";
+import { ReconnectingAlertSocket, SocketStatus } from "../realtime/socket";
+import { mergeAlerts } from "../realtime/merge";
+import type { Alert, Paginated } from "../api/types";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-export default function AlertsPanel() {
-  // The socket lives at the App level and feeds the query cache; this panel is
-  // a pure view over that cache plus a "load older pages" cursor walk.
-  const alerts = useAlertsInfinite();
-  const unread = useUnreadCount();
-  const markRead = useMarkRead();
-  const markAll = useMarkAllRead();
-  const live = useRealtimeStore((s) => s.status);
+const STATUS_LABEL: Record<SocketStatus, string> = {
+  open: "Live",
+  connecting: "Connecting…",
+  down: "Offline",
+};
 
-  const rows = alerts.data?.pages.flatMap((p) => p.results) ?? [];
-  const unreadCount = unread.data?.unread ?? 0;
+export default function AlertsPanel() {
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<SocketStatus>("down");
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await api.get<Paginated<Alert>>("/alerts/");
+        // Merge, don't replace: an alert that arrived over the socket while
+        // this (older) snapshot was in flight must survive the load.
+        if (!cancelled) {
+          setAlerts((prev) => mergeAlerts(res.data.results, prev));
+          setNextUrl(res.data.next);
+        }
+      } catch (err) {
+        if (!cancelled) setError(extractError(err));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
+
+    const { workspaceId } = useAuthStore.getState();
+    if (!workspaceId) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    let wasOpen = false;
+    const socket = new ReconnectingAlertSocket({
+      // Read the token at each (re)connect so a rotated access token is picked
+      // up without tearing the socket down.
+      buildUrl: () => {
+        const { access } = useAuthStore.getState();
+        if (!access) return null;
+        return `${WS_BASE}/ws/alerts/${workspaceId}/?token=${encodeURIComponent(access)}`;
+      },
+      onAlert: (raw) => {
+        const incoming = raw as Alert;
+        setAlerts((prev) =>
+          prev.some((a) => a.id === incoming.id) ? prev : [incoming, ...prev],
+        );
+      },
+      onStatus: (s) => {
+        if (cancelled) return;
+        setStatus(s);
+        // On REconnect, refetch to pick up anything fired while offline
+        // (the merge keeps whatever the socket already delivered).
+        if (s === "open" && wasOpen) void load();
+        if (s === "open") wasOpen = true;
+      },
+    });
+    socket.start();
+
+    return () => {
+      cancelled = true;
+      socket.stop();
+    };
+  }, []);
+
+  const markRead = async (id: string) => {
+    try {
+      await api.post(`/alerts/${id}/mark-read/`);
+      setAlerts((prev) => prev.map((a) => (a.id === id ? { ...a, is_read: true } : a)));
+    } catch (err) {
+      setError(extractError(err));
+    }
+  };
+
+  const markAllRead = async () => {
+    try {
+      await api.post("/alerts/mark-all-read/");
+      setAlerts((prev) => prev.map((a) => (a.is_read ? a : { ...a, is_read: true })));
+    } catch (err) {
+      setError(extractError(err));
+    }
+  };
+
+  // `next` is an absolute URL from the pagination envelope; the merge dedupes
+  // any rows that shifted between pages as new alerts arrived.
+  const loadMore = async () => {
+    if (!nextUrl) return;
+    try {
+      const res = await api.get<Paginated<Alert>>(nextUrl);
+      setAlerts((prev) => mergeAlerts(res.data.results, prev));
+      setNextUrl(res.data.next);
+    } catch (err) {
+      setError(extractError(err));
+    }
+  };
+
+  const hasUnread = alerts.some((a) => !a.is_read);
 
   return (
     <section className="card">
       <div className="card-head">
         <h2 className="card-title">Alerts</h2>
-        <div className="row gap">
-          {unreadCount > 0 && (
-            <button
-              className="btn small"
-              onClick={() => markAll.mutate()}
-              disabled={markAll.isPending}
-            >
-              Mark all read ({unreadCount})
+        <div className="topbar-actions">
+          {hasUnread && (
+            <button className="btn small" onClick={() => void markAllRead()}>
+              Mark all read
             </button>
           )}
-          <span className={`live-dot ${live === "open" ? "on" : "off"}`}>
-            {live === "open" ? "Live" : live === "connecting" ? "Connecting…" : "Offline"}
+          <span className={`live-dot ${status === "open" ? "on" : "off"}`}>
+            {STATUS_LABEL[status]}
           </span>
         </div>
       </div>
@@ -102,6 +192,12 @@ export default function AlertsPanel() {
             </div>
           )}
         </>
+      )}
+
+      {nextUrl && !loading && (
+        <button className="btn ghost" onClick={() => void loadMore()}>
+          Load older alerts
+        </button>
       )}
     </section>
   );

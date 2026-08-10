@@ -3,10 +3,13 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from core.views import RegisterView
+from core.views import HealthView, RegisterView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+
+    # Infra probe (load balancers / uptime monitors) — outside /api/v1.
+    path("healthz/", HealthView.as_view(), name="healthz"),
 
     # Authentication (stateless JWT)
     path("api/v1/auth/register/", RegisterView.as_view(), name="register"),

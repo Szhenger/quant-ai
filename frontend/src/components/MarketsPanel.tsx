@@ -1,6 +1,7 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
+import api, { fetchAllPages } from "../api/client";
 import { extractError } from "../api/errors";
-import { useAddWatch, useAnalysis, useWatchlist } from "../api/hooks";
+import type { MarketAnalysis, WatchedTicker } from "../api/types";
 import LineChart from "./LineChart";
 
 function formatValue(v: number | null): string {
@@ -16,6 +17,16 @@ export default function MarketsPanel() {
   const [ticker, setTicker] = useState("AAPL");
   const [newTicker, setNewTicker] = useState("");
   const [newNote, setNewNote] = useState("");
+  const [addingWatch, setAddingWatch] = useState(false);
+
+  const loadWatchlist = async () => {
+    setWlError(null);
+    try {
+      setWatchlist(await fetchAllPages<WatchedTicker>("/watchlist/"));
+    } catch (err) {
+      setWlError(extractError(err));
+    }
+  };
 
   const analysis = useAnalysis(ticker);
   const watchlist = useWatchlist();

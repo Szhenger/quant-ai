@@ -148,7 +148,7 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
           <span>Cooldown (min)</span>
           <input
             type="number"
-            min={0}
+            min={1}
             value={cooldown}
             onChange={(e) => setCooldown(e.target.value)}
           />

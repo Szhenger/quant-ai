@@ -1,12 +1,16 @@
-"""Test settings: sqlite, eager Celery, in-memory channels, no external services."""
-from .settings import *  # noqa: F401,F403
+"""Test settings: PostgreSQL (prod parity), eager Celery, in-memory channels.
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": ":memory:",
-    }
-}
+The database is the ONE external service tests use: running the suite on the
+same engine as production means SELECT FOR UPDATE, duration arithmetic and
+JSONB behave for real instead of being silently no-op'd by sqlite.
+
+DATABASES is inherited from base settings (DB_HOST/DB_PORT/DB_USER/... env
+vars); pytest-django creates and destroys an isolated ``test_<DB_NAME>``
+database around the run. Locally: ``docker compose up -d db`` from the repo
+root, or run the whole suite in a container via
+``docker compose -f docker-compose.test.yml run --rm --build test``.
+"""
+from .settings import *  # noqa: F401,F403
 
 # Run Celery tasks inline, surface exceptions.
 CELERY_TASK_ALWAYS_EAGER = True
@@ -27,7 +31,14 @@ ANTHROPIC_API_KEY = ""
 
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 
-# Disable throttling in tests.
-REST_FRAMEWORK = {**REST_FRAMEWORK, "DEFAULT_THROTTLE_CLASSES": [], "DEFAULT_THROTTLE_RATES": {}}
+# Disable throttling in tests. Scoped throttles are attached per-view, so their
+# scopes must still exist here — a None rate disables the throttle.
+REST_FRAMEWORK = {
+    **REST_FRAMEWORK,
+    "DEFAULT_THROTTLE_CLASSES": [],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": None, "user": None, "evaluate": None, "replay": None, "analysis": None,
+    },
+}
 
 PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]

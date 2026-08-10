@@ -33,6 +33,15 @@ def test_price_indicator_returns_last_close():
     assert result["value"] == 3.5
 
 
+def test_ema_warmup_is_masked():
+    # The EMA recursion is seeded at the first close; the biased warm-up region
+    # must be None so warm-up bars can never fire a condition.
+    result = compute_indicator("EMA", [10.0] * 25, {"window": 20})
+    assert result["series"][:19] == [None] * 19
+    assert result["series"][19] == pytest.approx(10.0)
+    assert result["value"] == pytest.approx(10.0)
+
+
 def test_insufficient_history_returns_none():
     result = compute_indicator("Z_SCORE", [10], {"window": 20})
     assert result["value"] is None

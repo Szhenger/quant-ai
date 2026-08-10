@@ -6,6 +6,8 @@ services:
     rootDir: backend
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
     startCommand: "python manage.py migrate && daphne -b 0.0.0.0 -p $PORT config.asgi:application"
+    # Deploys only go live once the DB and cache answer from inside the app.
+    healthCheckPath: /healthz/
     envVars:
       - key: DJANGO_DEBUG
         value: "False"
@@ -13,6 +15,10 @@ services:
         value: ".onrender.com,localhost,127.0.0.1"
       - key: DJANGO_SECRET_KEY
         generateValue: true
+      # The frontend is a separate static-site origin; without this the browser
+      # blocks every API call from it.
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://quantai-frontend.onrender.com"
       - key: MARKETDATA_PROVIDER
         value: auto
       - key: ANTHROPIC_API_KEY
@@ -96,12 +102,20 @@ services:
     maxmemoryPolicy: noeviction
 
   # ── Frontend (static SPA) ────────────────────────────────────────────────────
+  # A static site is its own origin, so the app must be pointed at the API
+  # service explicitly — relative /api and same-origin WebSockets only work in
+  # dev behind the Vite proxy. These are baked in at build time.
   - type: web
     name: quantai-frontend
     runtime: static
     rootDir: frontend
     buildCommand: "npm install && npm run build"
     staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE
+        value: "https://quantai-api.onrender.com/api/v1"
+      - key: VITE_WS_BASE
+        value: "wss://quantai-api.onrender.com"
 
 databases:
   - name: quantai-db

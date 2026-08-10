@@ -1,9 +1,25 @@
 # Runs the backend test suite in isolation.
-# Tests use sqlite + eager Celery + in-memory channels, so no db/redis services
-# are needed — everything runs inside one container.
+# Tests run against PostgreSQL (prod parity) with eager Celery + in-memory
+# channels — the throwaway database below is the only service dependency.
 services:
+  test-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quantai
+      POSTGRES_PASSWORD: quantai
+      POSTGRES_DB: quantai
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantai -d quantai"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
   test:
     build: ./backend
     environment:
       DJANGO_SETTINGS_MODULE: config.test_settings
+      DB_HOST: test-db
     command: sh -c "pytest -q"
+    depends_on:
+      test-db:
+        condition: service_healthy

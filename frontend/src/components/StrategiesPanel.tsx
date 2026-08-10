@@ -1,13 +1,7 @@
-import { Fragment, Suspense, lazy, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { Fragment, useEffect, useState } from "react";
+import api, { fetchAllPages } from "../api/client";
 import { extractError } from "../api/errors";
-import {
-  keys,
-  useDeleteStrategy,
-  useEvaluateStrategy,
-  useStrategies,
-  useWorkspaceId,
-} from "../api/hooks";
+import type { EvaluateResult, ReplayResult, Strategy } from "../api/types";
 import StrategyForm from "./StrategyForm";
 import ReplayPanel from "./ReplayPanel";
 
@@ -32,7 +26,20 @@ export default function StrategiesPanel() {
 
   const [builder, setBuilder] = useState<Builder>("form");
   const [evalState, setEvalState] = useState<Record<string, string>>({});
-  const [openReplayId, setOpenReplayId] = useState<string | null>(null);
+  const [rowBusy, setRowBusy] = useState<Record<string, boolean>>({});
+  const [replay, setReplay] = useState<Record<string, ReplayResult | { error: string }>>({});
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setStrategies(await fetchAllPages<Strategy>("/strategies/"));
+    } catch (err) {
+      setError(extractError(err));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const onCreated = () => void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
 
@@ -46,6 +53,19 @@ export default function StrategiesPanel() {
 
   const rows = strategies.data ?? [];
   const busyId = evaluate.isPending ? evaluate.variables : remove.isPending ? remove.variables : null;
+
+  // Reactivate a strategy the failure circuit breaker paused.
+  const resume = async (id: string) => {
+    setRowBusy((s) => ({ ...s, [id]: true }));
+    try {
+      await api.patch(`/strategies/${id}/`, { status: "active" });
+      await load();
+    } catch (err) {
+      setError(extractError(err));
+    } finally {
+      setRowBusy((s) => ({ ...s, [id]: false }));
+    }
+  };
 
   return (
     <div className="stack">
@@ -97,7 +117,9 @@ export default function StrategiesPanel() {
                           {s.indicator} {s.operator} {s.threshold}
                         </td>
                         <td>
-                          <span className="badge status">{s.status}</span>
+                          <span className="badge status" title={s.last_error || undefined}>
+                            {s.status}
+                          </span>
                         </td>
                         <td className="muted">{formatDate(s.last_triggered_at)}</td>
                         <td className="muted">{evalState[s.id] ?? "—"}</td>
@@ -116,6 +138,16 @@ export default function StrategiesPanel() {
                           >
                             {open ? "Hide replay" : "Replay"}
                           </button>
+                          {s.status === "failed" && (
+                            <button
+                              className="btn small"
+                              onClick={() => void resume(s.id)}
+                              disabled={rowBusy[s.id]}
+                              title="Reactivate this strategy and re-arm its failure circuit breaker"
+                            >
+                              Resume
+                            </button>
+                          )}
                           <button
                             className="btn small danger"
                             onClick={() => remove.mutate(s.id)}

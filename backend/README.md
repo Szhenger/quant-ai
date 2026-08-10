@@ -86,14 +86,19 @@ That's the whole live system: `daphne` is the door and the pipe, the worker is t
 beat is the heartbeat. (Prefer one command? `docker compose up --build` from the repo root
 brings up Postgres, Redis, and all three.)
 
-## Test it (fully offline)
+## Test it (offline, except the database)
 
-The tests need **neither Postgres nor Redis**. A dedicated `config.test_settings` swaps in
-sqlite, runs Celery **eagerly** (tasks execute inline, no broker), uses an in-memory channel
-layer, and forces the **synthetic** market — so the suite is deterministic and hermetic.
+The tests run against **PostgreSQL** — the same engine as production, so row locking and
+duration arithmetic are exercised for real. Everything else stays hermetic: a dedicated
+`config.test_settings` runs Celery **eagerly** (tasks execute inline, no broker), uses an
+in-memory channel layer, and forces the **synthetic** market.
 
 ```bash
-pytest        # 121 tests, all offline
+docker compose up -d db   # from the repo root: the throwaway Postgres
+cd backend && pytest      # pytest-django creates/destroys test_quantai around the run
+
+# Or run the whole suite in a container (starts its own test-db):
+docker compose -f docker-compose.test.yml run --rm --build test
 ```
 
 The tests double as a guided tour of the engine: `test_indicators.py` checks the
@@ -114,7 +119,7 @@ that matter (full list in `.env.example`):
 | `SYNTHETIC_CACHE_TTL` | `30` | Seconds a payload computed from synthetic *fallback* data may live in that cache — kept short so real data replaces it as soon as connectivity returns. |
 | `ANTHROPIC_API_KEY` | *(empty)* | **Optional.** Set it to switch on the real Chapter 7 AI layer; leave it empty and `ai` degrades to a no-op. No key needed to learn. |
 | `REDIS_URL` | `redis://localhost:6379/0` | Backs Channels (alert delivery), the Celery broker/result store, **and** the shared cache that holds the per-strategy evaluation lock ([Ch. 10](../math/10-concurrency-and-safety.md)). Must be a shared backend, not per-process memory. |
-| `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | `quantai` / `quantai` / `quantai` / `localhost` / `5432` | The Postgres connection for the live system. (Tests ignore these — they use sqlite.) |
+| `DB_NAME` / `DB_USER` / `DB_PASSWORD` / `DB_HOST` / `DB_PORT` | `quantai` / `quantai` / `quantai` / `localhost` / `5432` | The Postgres connection for the live system *and* the tests (which create an isolated `test_<DB_NAME>` database on the same server). |
 
 ---
 
