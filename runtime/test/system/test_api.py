@@ -295,7 +295,7 @@ def test_mark_all_read(auth_client, workspace):
                              operator=">", threshold=0.0, metric_value=1.0)
     resp = auth_client.post("/api/v1/alerts/mark-all-read/")
     assert resp.status_code == 200
-    assert resp.data == {"marked": 3}
+    assert resp.data == {"updated": 3}
     assert not Alert.objects.filter(workspace=workspace, is_read=False).exists()
 
 

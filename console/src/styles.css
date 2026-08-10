@@ -681,3 +681,30 @@ textarea {
 .small {
   font-size: 12.5px;
 }
+
+/* ---------- Web-stack additions: realtime badge, replay chart ---------- */
+.nav-badge {
+  margin-left: 8px;
+}
+.row.center {
+  justify-content: center;
+  margin-top: 12px;
+}
+.replay-controls {
+  align-items: center;
+  margin-bottom: 10px;
+}
+.replay-cooldown {
+  width: 64px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+}
+.replay-fire-line {
+  stroke: rgba(255, 140, 105, 0.28);
+  stroke-width: 1;
+}
+.replay-fire-dot {
+  fill: #ff8c69;
+  stroke: rgba(0, 0, 0, 0.4);
+  stroke-width: 1;
+}

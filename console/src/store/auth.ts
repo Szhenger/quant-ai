@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import axios from "axios";
 import api, { API_BASE } from "../api/client";
+import { queryClient } from "../queryClient";
 import type { AuthTokens, Paginated, Workspace } from "../api/types";
 
 interface AuthState {
@@ -61,6 +62,9 @@ export const useAuthStore = create<AuthState>()(
           username: null,
           workspaces: [],
         });
+        // Drop every cached server response: the next user on this browser
+        // must never see the previous session's data flash from cache.
+        queryClient.clear();
       },
 
       setWorkspace: (id) => set({ workspaceId: id }),

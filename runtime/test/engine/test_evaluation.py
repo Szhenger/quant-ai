@@ -53,9 +53,9 @@ def test_evaluate_via_api_action(auth_client, workspace):
     resp = auth_client.post(f"/api/v1/strategies/{s.id}/evaluate/")
     assert resp.status_code == 200
     assert resp.data["status"] == "alerted"
-    # Alert should now be listed
+    # Alert should now be listed (alerts use cursor pagination: no count field)
     listing = auth_client.get("/api/v1/alerts/")
-    assert listing.data["count"] == 1
+    assert len(listing.data["results"]) == 1
 
 
 def test_ai_disabled_delivery_recorded(workspace):

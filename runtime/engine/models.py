@@ -143,7 +143,12 @@ class Alert(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
-        indexes = [models.Index(fields=["workspace", "is_read"])]
+        indexes = [
+            models.Index(fields=["workspace", "is_read"]),
+            # Backs cursor pagination: each page is a range scan on
+            # (workspace, created_at DESC) instead of an offset scan.
+            models.Index(fields=["workspace", "-created_at"]),
+        ]
 
     def __str__(self):
         return f"Alert {self.ticker} {self.indicator} @ {self.created_at:%Y-%m-%d %H:%M}"

@@ -1,9 +1,9 @@
 # QuantAI — Frontend (the cockpit)
 
-This is the human's window onto the engine. Everything the [backend](../runtime/README.md)
+This is the human's window onto the engine. Everything the [backend](../backend/README.md)
 computes — markets, strategies, and live alerts from Chapters 8–10 — is put in front of you
 here: a React + TypeScript single-page app, built with Vite. It talks to the backend through
-the exact contract of [Chapter 9](../docs/09-the-api-contract.md), and it holds a live
+the exact contract of [Chapter 9](../math/09-the-api-contract.md), and it holds a live
 WebSocket open so alerts arrive the moment they fire.
 
 Best part for a learner: it runs against the **offline synthetic backend**, so you can click
@@ -16,32 +16,44 @@ hand in the docs are the ones lighting up on screen.
 src/
 ├── api/
 │   ├── client.ts        # the axios instance: JWT + X-Workspace-ID interceptors, single-flight 401 refresh
+│   ├── hooks.ts         # every server read/write as a typed React Query hook (keys namespaced by workspace)
 │   ├── types.ts         # TypeScript shapes of the API payloads (Strategy, Alert, MarketAnalysis, …)
 │   └── errors.ts        # extractError(): turn an axios error into a human string
 ├── store/
 │   └── auth.ts          # Zustand store: access/refresh tokens, active workspace, login/register/logout (persisted)
+├── realtime/
+│   ├── socket.ts        # a WebSocket that stays up: reconnect w/ backoff+jitter, heartbeat ping/pong
+│   ├── backoff.ts       # the reconnect pacing math (pure, unit-tested)
+│   ├── merge.ts         # cache-merge helpers: dedup on socket prepend, optimistic read-state (pure, unit-tested)
+│   └── useAlertsSocket.ts # app-level wiring: one socket per session, alerts land in the query cache
 ├── components/
 │   ├── MarketsPanel.tsx        # search a ticker → price series + every indicator; manage the watchlist
 │   ├── StrategiesPanel.tsx     # list strategies, evaluate one on demand, host the two builders
 │   ├── StrategyForm.tsx        # the flat form → POST /strategies/ (fields driven by GET /indicators/)
-│   ├── StrategyGraphBuilder.tsx# the React-Flow visual builder → POST /strategies/deploy-graph/
-│   ├── AlertsPanel.tsx         # alert history + the live WebSocket (the "Live" dot)
+│   ├── StrategyGraphBuilder.tsx# the React-Flow visual builder → POST /strategies/deploy-graph/ (lazy-loaded chunk)
+│   ├── AlertsPanel.tsx         # alert history: infinite cursor pages, mark-read/mark-all-read, the "Live" dot
+│   ├── ReplayPanel.tsx         # signal replay: window/cooldown controls around the replay endpoint
+│   ├── ReplayChart.tsx         # the replay timeline: price path + a marker at every would-have-fired bar
 │   └── LineChart.tsx           # dependency-free responsive SVG price chart
 ├── pages/
 │   └── LoginPage.tsx    # register / log in
-├── App.tsx              # the shell: sidebar tabs (Markets / Strategies / Alerts), workspace switcher
+├── App.tsx              # the shell: sidebar tabs + live unread badge, workspace switcher, the session socket
+├── queryClient.ts       # the React Query client: dedup, abort-on-unmount, background revalidation
 ├── main.tsx             # Vite entry point
 └── styles.css
 ```
 
-The three panels map one-to-one onto the sidebar tabs in `App.tsx`. Switching workspace
-remounts the active panel (it's keyed on `workspaceId`), which forces a fresh fetch **and**
-reconnects the WebSocket to the new workspace's channel.
+The three panels map one-to-one onto the sidebar tabs in `App.tsx`. Server state lives in
+the React Query cache behind `api/hooks.ts`: concurrent consumers share one request, cached
+data paints instantly while revalidating, and every query key is prefixed with the workspace
+id — so switching workspace switches cache *namespaces* and can never bleed one tenant's rows
+into another's view. Switching also remounts the panels (keyed on `workspaceId`) to reset
+their local UI state, and the session socket reconnects to the new workspace's channel.
 
 ## How it maps to the backend (Chapter 9)
 
 Two files carry almost all the contract logic; read them alongside
-[Chapter 9](../docs/09-the-api-contract.md) and it clicks.
+[Chapter 9](../math/09-the-api-contract.md) and it clicks.
 
 - **`store/auth.ts`** — the login desk. `register` and `login` call the bare auth endpoints
   (`/auth/register/`, `/auth/token/`) with a plain axios call — no token exists yet, so they
@@ -62,21 +74,27 @@ Two files carry almost all the contract logic; read them alongside
 That interceptor is the client half of the two-checkpoint story in Chapter 9: identity
 (`Authorization`) and tenancy (`X-Workspace-ID`), set once, applied everywhere.
 
-## The live-alert WebSocket (Chapter 9)
+## The live-alert WebSocket (Chapters 9 & 10)
 
-`AlertsPanel.tsx` first fetches history with `GET /alerts/`, then opens the persistent pipe:
+One socket per session, owned by the app shell (`realtime/useAlertsSocket.ts`), not by any
+panel — so alerts arrive and the sidebar's unread badge ticks up whichever tab you're on.
+The access token rides in the **query string** (a browser can't set headers on a WebSocket),
+exactly as [Chapter 9](../math/09-the-api-contract.md) describes, and the URL is rebuilt at
+every (re)connect so a refreshed token is picked up without tearing the socket down.
 
-```ts
-const wsBase = window.location.origin.replace("http", "ws");
-const url = `${wsBase}/ws/alerts/${workspaceId}/?token=${access}`;
-const socket = new WebSocket(url);
-```
+The raw browser WebSocket reports clean closes but not *half-open* connections — a dead
+proxy or a slept laptop leaves a socket that looks open and delivers nothing. Alerts are the
+product here, so `realtime/socket.ts` adds what the primitive lacks:
 
-Note the access token in the **query string** — a browser can't set headers on a WebSocket,
-so the JWT rides in the URL exactly as [Chapter 9](../docs/09-the-api-contract.md) describes.
-Incoming `{"type": "alert", ...}` frames are prepended to the list (de-duplicated by id), and
-the little **Live / Offline** dot reflects the socket's open state. This is the server speaking
-first — no polling.
+- an application-level **heartbeat**: ping every 25s; a missed pong within 10s declares the
+  connection dead and tears it down;
+- **reconnection with capped exponential backoff + full jitter** (`backoff.ts`), so a fleet
+  of clients that lost the same server don't stampede it in lockstep the moment it returns;
+- incoming alerts land in the **React Query cache** (`merge.ts`), de-duplicated by id against
+  every cached page — the same alert arriving over the socket *and* in a racing background
+  refetch renders exactly once. That's the client-side half of Chapter 10.
+
+The **Live / Connecting / Offline** dot in the Alerts panel reflects the socket's true state.
 
 ## Run it
 
@@ -97,15 +115,20 @@ proxy: {
 }
 ```
 
-Start the [backend](../runtime/README.md) first (or `docker compose up` from the repo root),
+Start the [backend](../backend/README.md) first (or `docker compose up` from the repo root),
 then `npm run dev`. Because the default backend serves the **synthetic** market, you can
 register a throwaway account and explore the whole cockpit with no keys and no network.
 
-Production build:
+Production build and tests:
 
 ```bash
 npm run build      # tsc type-check, then a static Vite bundle in dist/
+npm test           # vitest: the pure realtime logic (backoff pacing, cache-merge dedup)
 ```
+
+The build splits deliberately: app code (~35 kB) + long-cacheable vendor chunks, with the
+React-Flow graph builder in its own **lazy** chunk that never downloads unless someone opens
+the graph tab.
 
 ---
 
