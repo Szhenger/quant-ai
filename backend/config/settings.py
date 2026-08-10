@@ -47,6 +47,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -111,12 +112,22 @@ CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_WORKER_CONCURRENCY = int(os.environ.get("CELERY_CONCURRENCY", "4"))
+# Hard-stop runaway tasks BELOW the per-strategy eval lock TTL (300s in
+# strategies.tasks), so a lock can never expire while its task is still running.
+CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "210"))
+CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "240"))
 CELERY_BEAT_SCHEDULE = {
     "sweep-due-strategies-every-minute": {
         "task": "strategies.tasks.sweep_due_strategies",
         "schedule": 60.0,
     },
 }
+
+# Consecutive evaluation failures before a strategy is auto-paused to FAILED
+# (the circuit breaker). Reactivating the strategy re-arms it.
+STRATEGY_MAX_CONSECUTIVE_FAILURES = int(
+    os.environ.get("STRATEGY_MAX_CONSECUTIVE_FAILURES", "5")
+)
 
 # --- REST framework ----------------------------------------------------------
 REST_FRAMEWORK = {
@@ -131,7 +142,14 @@ REST_FRAMEWORK = {
         "rest_framework.throttling.AnonRateThrottle",
         "rest_framework.throttling.UserRateThrottle",
     ],
-    "DEFAULT_THROTTLE_RATES": {"anon": "60/hour", "user": "2000/hour"},
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "60/hour",
+        "user": "2000/hour",
+        # Scoped budgets for the expensive endpoints (network + compute heavy):
+        "evaluate": "20/min",
+        "replay": "30/min",
+        "analysis": "120/min",
+    },
 }
 
 SIMPLE_JWT = {
@@ -164,9 +182,24 @@ MARKETDATA_CACHE = env_bool("MARKETDATA_CACHE", False)
 MARKETDATA_CACHE_DIR = os.environ.get("MARKETDATA_CACHE_DIR", str(BASE_DIR / ".marketdata_cache"))
 MARKETDATA_CACHE_TTL = int(os.environ.get("MARKETDATA_CACHE_TTL", "3600"))
 
+# Fleet-wide shared bar cache (the Redis-backed default Django cache): N
+# strategies evaluating the same ticker cost ONE upstream fetch per TTL window
+# across all workers, and a single-flight lock coalesces concurrent fetches.
+# The synthetic flag is cached with the bars; synthetic fallbacks get a short
+# TTL so real data is retried promptly. Applies to yfinance/auto modes only.
+MARKETDATA_SHARED_CACHE = env_bool("MARKETDATA_SHARED_CACHE", True)
+MARKETDATA_SHARED_CACHE_TTL = int(os.environ.get("MARKETDATA_SHARED_CACHE_TTL", "300"))
+MARKETDATA_SHARED_CACHE_SYNTHETIC_TTL = int(
+    os.environ.get("MARKETDATA_SHARED_CACHE_SYNTHETIC_TTL", "30")
+)
+# Max seconds a coalescing waiter polls for another worker's in-flight fetch
+# before giving up and fetching directly.
+MARKETDATA_FETCH_WAIT = float(os.environ.get("MARKETDATA_FETCH_WAIT", "10"))
+
 # --- Anthropic Claude (AI contextualisation layer) --------------------------
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
+ANTHROPIC_TIMEOUT_SECONDS = float(os.environ.get("ANTHROPIC_TIMEOUT_SECONDS", "30"))
 
 # --- Email (SMTP alert channel) ---------------------------------------------
 EMAIL_BACKEND = os.environ.get(
@@ -179,10 +212,16 @@ EMAIL_PORT = int(os.environ.get("EMAIL_PORT", "587"))
 EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
 EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
 EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_TIMEOUT = int(os.environ.get("EMAIL_TIMEOUT", "10"))
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "alerts@quantai.local")
 
 # --- Misc --------------------------------------------------------------------
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+# In DEBUG, whitenoise serves straight from the app static dirs (no
+# collectstatic needed); in production it serves the collected STATIC_ROOT.
+WHITENOISE_USE_FINDERS = DEBUG
+WHITENOISE_AUTOREFRESH = DEBUG
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 LANGUAGE_CODE = "en-us"
 TIME_ZONE = "UTC"

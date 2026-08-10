@@ -1,5 +1,6 @@
 from rest_framework import serializers
 
+from core.validators import ensure_public_webhook_url, normalize_ticker
 from marketdata import (
     INDICATOR_SPECS,
     OPERATORS,
@@ -21,14 +22,16 @@ class StrategySerializer(serializers.ModelSerializer):
             "id", "name", "ticker",
             "indicator", "params", "operator", "threshold", "condition",
             "ai_enabled", "ai_prompt",
-            "notify_in_app", "notify_email", "webhook_url",
+            "notify_in_app", "notify_email", "webhook_url", "webhook_secret",
             "status", "poll_interval_minutes", "cooldown_minutes",
+            "consecutive_failures",
             "last_evaluated_at", "last_triggered_at", "last_metric_value", "last_error",
             "created_at", "updated_at",
         )
         read_only_fields = (
-            "id", "last_evaluated_at", "last_triggered_at", "last_metric_value",
-            "last_error", "created_at", "updated_at",
+            "id", "webhook_secret", "consecutive_failures", "last_evaluated_at",
+            "last_triggered_at", "last_metric_value", "last_error",
+            "created_at", "updated_at",
         )
         # In composite mode the client sends only `condition`; the flat columns are
         # filled server-side, so they must not be required at the field level.
@@ -37,6 +40,20 @@ class StrategySerializer(serializers.ModelSerializer):
             "operator": {"required": False},
             "threshold": {"required": False},
         }
+
+    def validate_ticker(self, value):
+        try:
+            return normalize_ticker(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+
+    def validate_webhook_url(self, value):
+        if value:
+            try:
+                ensure_public_webhook_url(value)
+            except ValueError as exc:
+                raise serializers.ValidationError(str(exc))
+        return value
 
     def validate_indicator(self, value):
         if value not in INDICATOR_SPECS:
@@ -47,6 +64,13 @@ class StrategySerializer(serializers.ModelSerializer):
         if value not in OPERATORS:
             raise serializers.ValidationError(f"Unknown operator: {value}")
         return value
+
+    def update(self, instance, validated_data):
+        # Reactivating a strategy re-arms its circuit breaker.
+        if (validated_data.get("status") == Strategy.Status.ACTIVE
+                and instance.status != Strategy.Status.ACTIVE):
+            validated_data["consecutive_failures"] = 0
+        return super().update(instance, validated_data)
 
     def validate(self, attrs):
         condition = attrs.get("condition", getattr(self.instance, "condition", None))

@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import axios from "axios";
-import api from "../api/client";
+import api, { API_BASE } from "../api/client";
 import type { AuthTokens, Paginated, Workspace } from "../api/types";
 
 interface AuthState {
@@ -14,7 +14,7 @@ interface AuthState {
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
   setWorkspace: (id: string) => void;
-  setAccess: (access: string) => void;
+  setTokens: (access: string, refresh: string) => void;
   loadWorkspaces: () => Promise<void>;
 }
 
@@ -29,12 +29,12 @@ export const useAuthStore = create<AuthState>()(
 
       register: async (username, email, password) => {
         // Bare axios: registration needs no auth header and no workspace scope.
-        await axios.post("/api/v1/auth/register/", { username, email, password });
+        await axios.post(`${API_BASE}/auth/register/`, { username, email, password });
         await get().login(username, password);
       },
 
       login: async (username, password) => {
-        const { data } = await axios.post<AuthTokens>("/api/v1/auth/token/", {
+        const { data } = await axios.post<AuthTokens>(`${API_BASE}/auth/token/`, {
           username,
           password,
         });
@@ -65,7 +65,7 @@ export const useAuthStore = create<AuthState>()(
 
       setWorkspace: (id) => set({ workspaceId: id }),
 
-      setAccess: (access) => set({ access }),
+      setTokens: (access, refresh) => set({ access, refresh }),
     }),
     {
       name: "quantai-auth",

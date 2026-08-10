@@ -1,89 +1,59 @@
-name: SimpleFeed++ Validation Pipeline
+name: CI
 
 on:
   push:
-    branches: [ "main", "develop" ]
+    branches: [main]
   pull_request:
-    branches: [ "main", "develop" ]
+    branches: [main]
+
+# A newer push to the same ref supersedes any in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  # ==========================================
-  # STAGE 1: NATIVE KERNEL (C++ / GoogleTest)
-  # ==========================================
-  test-kernel:
-    name: Native AVX-512 Kernel Tests
+  backend:
+    name: Backend (pytest)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Toolchain (CMake & GCC)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y cmake g++ build-essential
+      # Tests run against PostgreSQL (prod parity) with eager Celery +
+      # in-memory channels; compose starts the throwaway test-db dependency.
+      - name: Run backend test suite
+        run: docker compose -f docker-compose.test.yml run --rm --build test
 
-      - name: Build GoogleTest Harness
-        run: |
-          mkdir -p backend/kernel/build
-          cd backend/kernel/build
-          cmake ../tests
-          make -j$(nproc)
+      # Reuses the image built above: catches models that drifted from the
+      # committed migrations, and any failing Django system check.
+      - name: Migration drift + system checks
+        run: >
+          docker compose -f docker-compose.test.yml run --rm test
+          sh -c "python manage.py makemigrations --check --dry-run && python manage.py check"
 
-      - name: Execute Kernel Matrix
-        run: ./backend/kernel/build/kernel_tests
-
-  # ==========================================
-  # STAGE 2: BACKEND (Python / Pytest / Docker)
-  # ==========================================
-  test-backend:
-    name: Django API & Celery Workers
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install Docker Compose
-        run: sudo apt-get install -y docker-compose
-
-      - name: Run Ephemeral Testing Environment
-        # This spins up Postgres/Redis, runs Pytest, and tears everything down automatically
-        run: |
-          docker-compose -f docker-compose.test.yml build
-          docker-compose -f docker-compose.test.yml run --rm test-backend
-      
-      - name: Teardown Infrastructure
+      - name: Teardown
         if: always()
-        run: docker-compose -f docker-compose.test.yml down -v
+        run: docker compose -f docker-compose.test.yml down -v
 
-  # ==========================================
-  # STAGE 3: FRONTEND (React / Vitest / Playwright)
-  # ==========================================
-  test-frontend:
-    name: React Workspace UI
+  frontend:
+    name: Frontend (type-check + build)
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js Environment
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'frontend/package-lock.json'
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Dependencies
-        working-directory: ./frontend
+      - name: Install dependencies
+        working-directory: frontend
         run: npm ci
 
-      - name: Execute Component Unit Tests (Vitest)
-        working-directory: ./frontend
-        run: npm run test -- --run
-
-      - name: Install Playwright Browsers
-        working-directory: ./frontend
-        run: npx playwright install --with-deps chromium
-
-      - name: Execute E2E Edge Cases (Playwright)
-        working-directory: ./frontend
-        run: npx playwright test
+      # "build" runs tsc first, so this is the type-check and the prod build.
+      - name: Type-check and build
+        working-directory: frontend
+        run: npm run build

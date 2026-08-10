@@ -22,3 +22,9 @@ dist/
 # OS / editor
 .DS_Store
 *.log
+
+# Local dev Postgres cluster (scripts/devdb.sh)
+.devdb/
+
+# Collected static assets (whitenoise serves these in prod)
+backend/staticfiles/

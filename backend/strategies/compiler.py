@@ -54,8 +54,17 @@ def _find_root(condition_ids, ai_id, edges, node_map):
     """The condition node that is the tree's output: it feeds the AI node if one
     exists, otherwise it is the single condition node with no downstream condition."""
     if ai_id is not None:
-        feeders = [e["source"] for e in edges
-                   if e.get("target") == ai_id and e.get("source") in condition_ids]
+        # dict.fromkeys: dedupe while keeping edge order — duplicate edges from a
+        # single condition must not read as "multiple conditions".
+        feeders = list(dict.fromkeys(
+            e["source"] for e in edges
+            if e.get("target") == ai_id and e.get("source") in condition_ids
+        ))
+        if len(feeders) > 1:
+            raise GraphCompilationError(
+                "Multiple conditions feed the AI node; "
+                "combine them with a Logic (AND/OR) node first."
+            )
         if feeders:
             return node_map[feeders[0]]
     sinks = [nid for nid in condition_ids

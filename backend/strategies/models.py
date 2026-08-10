@@ -10,6 +10,10 @@ INDICATOR_CHOICES = [(k, v["label"]) for k, v in INDICATOR_SPECS.items()]
 OPERATOR_CHOICES = [(k, v) for k, v in OPERATORS.items()]
 
 
+def _new_webhook_secret() -> str:
+    return uuid.uuid4().hex
+
+
 class Strategy(models.Model):
     """A user-defined market-monitoring rule.
 
@@ -47,6 +51,10 @@ class Strategy(models.Model):
     notify_in_app = models.BooleanField(default=True)
     notify_email = models.BooleanField(default=False)
     webhook_url = models.URLField(max_length=1000, blank=True, default="")
+    # Per-strategy secret for HMAC-signing webhook payloads
+    # (X-QuantAI-Signature header), so receivers can authenticate deliveries.
+    webhook_secret = models.CharField(max_length=64, default=_new_webhook_secret,
+                                      editable=False)
 
     # Scheduling / lifecycle
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.ACTIVE)
@@ -63,6 +71,10 @@ class Strategy(models.Model):
     last_triggered_at = models.DateTimeField(null=True, blank=True)
     last_metric_value = models.FloatField(null=True, blank=True)
     last_error = models.TextField(blank=True, default="")
+    # Circuit breaker: consecutive failed evaluations. At
+    # STRATEGY_MAX_CONSECUTIVE_FAILURES the strategy is auto-paused to FAILED
+    # instead of retrying forever; reset on success and on user reactivation.
+    consecutive_failures = models.PositiveIntegerField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -106,7 +118,9 @@ class Alert(models.Model):
     indicator = models.CharField(max_length=20)
     operator = models.CharField(max_length=12)
     threshold = models.FloatField()
-    metric_value = models.FloatField()
+    # Nullable: an alert with no representative metric records NULL, never a
+    # fabricated 0.0 — consistent with the data-honesty rule everywhere else.
+    metric_value = models.FloatField(null=True, blank=True)
 
     ai_used = models.BooleanField(default=False)
     ai_rationale = models.TextField(blank=True, default="")

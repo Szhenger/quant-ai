@@ -19,6 +19,11 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   api:
     build: ./backend
@@ -34,11 +39,18 @@ services:
       REDIS_URL: redis://redis:6379/0
       MARKETDATA_PROVIDER: ${MARKETDATA_PROVIDER:-auto}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    healthcheck:
+      # /healthz verifies the DB and the shared cache from inside the app.
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz/', timeout=3)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
 
   worker:
     build: ./backend
@@ -47,8 +59,10 @@ services:
       - ./backend:/app
     environment: *backend_env
     depends_on:
-      - api
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   beat:
     build: ./backend
@@ -57,7 +71,10 @@ services:
       - ./backend:/app
     environment: *backend_env
     depends_on:
-      - worker
+      redis:
+        condition: service_healthy
+      worker:
+        condition: service_started
 
 volumes:
   quantai_pg:

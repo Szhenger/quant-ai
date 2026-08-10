@@ -104,7 +104,7 @@ class YFinanceProvider(BaseProvider):
 
         # Pull extra calendar days to cover weekends/holidays, then trim.
         period_days = int(days * 1.6) + 10
-        df = yf.Ticker(ticker).history(period=f"{period_days}d", auto_adjust=True)
+        df = yf.Ticker(ticker).history(period=f"{period_days}d", auto_adjust=True, timeout=20)
         if df is None or df.empty or "Close" not in df:
             raise ProviderError(f"No price data returned for {ticker!r}")
         closes = [float(x) for x in df["Close"].tolist()][-days:]
@@ -183,17 +183,27 @@ def _maybe_cache(provider: BaseProvider) -> BaseProvider:
     return CachingProvider(provider)
 
 
+def _maybe_shared_cache(provider: BaseProvider) -> BaseProvider:
+    """Outermost layer: fleet-wide Redis bar cache with single-flight fetch
+    coalescing (``marketdata.service``), unless ``MARKETDATA_SHARED_CACHE`` is off."""
+    if not getattr(settings, "MARKETDATA_SHARED_CACHE", True):
+        return provider
+    from .service import SharedCacheProvider
+
+    return SharedCacheProvider(provider)
+
+
 def get_provider() -> BaseProvider:
     mode = getattr(settings, "MARKETDATA_PROVIDER", "auto")
     synthetic = SyntheticProvider()
     if mode == "synthetic":
         return synthetic
     if mode == "yfinance":
-        return _maybe_cache(ResilientProvider(YFinanceProvider(), synthetic))
+        return _maybe_shared_cache(_maybe_cache(ResilientProvider(YFinanceProvider(), synthetic)))
     # auto
     try:
         import yfinance  # noqa: F401
-        return _maybe_cache(ResilientProvider(YFinanceProvider(), synthetic))
+        return _maybe_shared_cache(_maybe_cache(ResilientProvider(YFinanceProvider(), synthetic)))
     except ImportError:
         logger.info("yfinance not installed; using synthetic market data.")
         return synthetic

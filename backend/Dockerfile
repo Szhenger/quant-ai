@@ -14,6 +14,13 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Static assets (admin, DRF pages) baked into the image; whitenoise serves them.
+RUN python manage.py collectstatic --noinput
+
+# Run as an unprivileged user.
+RUN useradd --create-home appuser && chown -R appuser /app
+USER appuser
+
 EXPOSE 8000
 
 # ASGI server (serves both HTTP and WebSockets)

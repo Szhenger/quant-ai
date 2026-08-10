@@ -114,6 +114,42 @@ def test_composite_and_not_met_creates_no_alert(workspace):
     assert Alert.objects.count() == 0
 
 
+# --- Circuit breaker ---------------------------------------------------------
+
+def test_repeated_failures_trip_the_circuit_breaker(workspace):
+    s = _strategy(workspace)
+    with patch("strategies.tasks.get_provider", side_effect=RuntimeError("boom")):
+        for _ in range(5):
+            evaluate_strategy(str(s.id))
+    s.refresh_from_db()
+    assert s.status == Strategy.Status.FAILED
+    assert s.consecutive_failures == 5
+    assert "boom" in s.last_error
+    # A tripped strategy is no longer swept.
+    with patch("strategies.tasks.evaluate_strategy.delay") as delay:
+        assert sweep_due_strategies()["queued"] == 0
+    assert delay.call_count == 0
+
+
+def test_successful_evaluation_resets_failure_counter(workspace):
+    s = _strategy(workspace, consecutive_failures=3)
+    evaluate_strategy(str(s.id))
+    s.refresh_from_db()
+    assert s.consecutive_failures == 0
+    assert s.status == Strategy.Status.ACTIVE
+
+
+def test_reactivating_a_failed_strategy_rearms_the_breaker(auth_client, workspace):
+    s = _strategy(workspace, status=Strategy.Status.FAILED, consecutive_failures=5,
+                  last_error="boom")
+    resp = auth_client.patch(f"/api/v1/strategies/{s.id}/", {"status": "active"},
+                             format="json")
+    assert resp.status_code == 200, resp.content
+    s.refresh_from_db()
+    assert s.status == Strategy.Status.ACTIVE
+    assert s.consecutive_failures == 0
+
+
 # --- Sequential-safety guarantees (S1–S3) ----------------------------------
 
 def test_lock_prevents_concurrent_evaluation(workspace):
@@ -137,6 +173,21 @@ def test_back_to_back_evaluation_fires_once(workspace):
     assert evaluate_strategy(str(s.id))["status"] == "alerted"
     assert evaluate_strategy(str(s.id))["status"] == "cooldown"
     assert Alert.objects.count() == 1
+
+
+def test_sweep_enqueues_only_due_strategies(workspace):
+    """The due filter runs in the DB: elapsed >= per-row poll interval."""
+    from datetime import timedelta
+    from django.utils import timezone
+
+    due = _strategy(workspace, poll_interval_minutes=15,
+                    last_evaluated_at=timezone.now() - timedelta(minutes=16))
+    _strategy(workspace, poll_interval_minutes=15,
+              last_evaluated_at=timezone.now() - timedelta(minutes=5))
+    with patch("strategies.tasks.evaluate_strategy.delay") as delay:
+        result = sweep_due_strategies()
+    assert result["queued"] == 1
+    delay.assert_called_once_with(str(due.id))
 
 
 def test_sweep_claims_each_strategy_once(workspace):

@@ -37,3 +37,30 @@ class WatchedTickerSerializer(serializers.ModelSerializer):
         model = WatchedTicker
         fields = ("id", "ticker", "note", "created_at")
         read_only_fields = ("id", "created_at")
+
+    def validate(self, attrs):
+        # The (workspace, ticker) unique constraint can't be auto-validated by DRF
+        # because workspace isn't a serializer field — without this check a
+        # duplicate add surfaces as a 500 IntegrityError instead of a 400.
+        from .validators import normalize_ticker
+
+        ticker = attrs.get("ticker", getattr(self.instance, "ticker", ""))
+        try:
+            ticker = normalize_ticker(ticker)
+        except ValueError as exc:
+            raise serializers.ValidationError({"ticker": str(exc)})
+        if "ticker" in attrs:
+            attrs["ticker"] = ticker
+        request = self.context.get("request")
+        if request is not None and ticker:
+            from .workspaces import resolve_active_workspace
+
+            workspace = resolve_active_workspace(request)
+            qs = WatchedTicker.objects.filter(workspace=workspace, ticker=ticker)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError(
+                    {"ticker": f"{ticker} is already on this watchlist."}
+                )
+        return attrs

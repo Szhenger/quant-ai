@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import api from "../api/client";
+import { useEffect, useState } from "react";
+import api, { WS_BASE } from "../api/client";
 import { extractError } from "../api/errors";
 import { useAuthStore } from "../store/auth";
+import { ReconnectingAlertSocket, SocketStatus } from "../realtime/socket";
+import { mergeAlerts } from "../realtime/merge";
 import type { Alert, Paginated } from "../api/types";
 
 function formatDate(iso: string): string {
@@ -9,13 +11,18 @@ function formatDate(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+const STATUS_LABEL: Record<SocketStatus, string> = {
+  open: "Live",
+  connecting: "Connecting…",
+  down: "Offline",
+};
+
 export default function AlertsPanel() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [live, setLive] = useState(false);
-
-  const socketRef = useRef<WebSocket | null>(null);
+  const [status, setStatus] = useState<SocketStatus>("down");
+  const [nextUrl, setNextUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -25,7 +32,12 @@ export default function AlertsPanel() {
       setError(null);
       try {
         const res = await api.get<Paginated<Alert>>("/alerts/");
-        if (!cancelled) setAlerts(res.data.results);
+        // Merge, don't replace: an alert that arrived over the socket while
+        // this (older) snapshot was in flight must survive the load.
+        if (!cancelled) {
+          setAlerts((prev) => mergeAlerts(res.data.results, prev));
+          setNextUrl(res.data.next);
+        }
       } catch (err) {
         if (!cancelled) setError(extractError(err));
       } finally {
@@ -34,42 +46,42 @@ export default function AlertsPanel() {
     };
     void load();
 
-    const { workspaceId, access } = useAuthStore.getState();
-    if (workspaceId && access) {
-      const wsBase = window.location.origin.replace("http", "ws");
-      const url = `${wsBase}/ws/alerts/${workspaceId}/?token=${access}`;
-      const socket = new WebSocket(url);
-      socketRef.current = socket;
-
-      socket.onopen = () => setLive(true);
-      socket.onclose = () => setLive(false);
-      socket.onerror = () => setLive(false);
-      socket.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data) as { type: string; alert?: Alert };
-          if (data.type === "alert" && data.alert) {
-            const incoming = data.alert;
-            setAlerts((prev) =>
-              prev.some((a) => a.id === incoming.id) ? prev : [incoming, ...prev],
-            );
-          }
-        } catch {
-          // Ignore malformed frames.
-        }
+    const { workspaceId } = useAuthStore.getState();
+    if (!workspaceId) {
+      return () => {
+        cancelled = true;
       };
     }
 
+    let wasOpen = false;
+    const socket = new ReconnectingAlertSocket({
+      // Read the token at each (re)connect so a rotated access token is picked
+      // up without tearing the socket down.
+      buildUrl: () => {
+        const { access } = useAuthStore.getState();
+        if (!access) return null;
+        return `${WS_BASE}/ws/alerts/${workspaceId}/?token=${encodeURIComponent(access)}`;
+      },
+      onAlert: (raw) => {
+        const incoming = raw as Alert;
+        setAlerts((prev) =>
+          prev.some((a) => a.id === incoming.id) ? prev : [incoming, ...prev],
+        );
+      },
+      onStatus: (s) => {
+        if (cancelled) return;
+        setStatus(s);
+        // On REconnect, refetch to pick up anything fired while offline
+        // (the merge keeps whatever the socket already delivered).
+        if (s === "open" && wasOpen) void load();
+        if (s === "open") wasOpen = true;
+      },
+    });
+    socket.start();
+
     return () => {
       cancelled = true;
-      const socket = socketRef.current;
-      if (socket) {
-        socket.onopen = null;
-        socket.onclose = null;
-        socket.onerror = null;
-        socket.onmessage = null;
-        socket.close();
-        socketRef.current = null;
-      }
+      socket.stop();
     };
   }, []);
 
@@ -82,13 +94,44 @@ export default function AlertsPanel() {
     }
   };
 
+  const markAllRead = async () => {
+    try {
+      await api.post("/alerts/mark-all-read/");
+      setAlerts((prev) => prev.map((a) => (a.is_read ? a : { ...a, is_read: true })));
+    } catch (err) {
+      setError(extractError(err));
+    }
+  };
+
+  // `next` is an absolute URL from the pagination envelope; the merge dedupes
+  // any rows that shifted between pages as new alerts arrived.
+  const loadMore = async () => {
+    if (!nextUrl) return;
+    try {
+      const res = await api.get<Paginated<Alert>>(nextUrl);
+      setAlerts((prev) => mergeAlerts(res.data.results, prev));
+      setNextUrl(res.data.next);
+    } catch (err) {
+      setError(extractError(err));
+    }
+  };
+
+  const hasUnread = alerts.some((a) => !a.is_read);
+
   return (
     <section className="card">
       <div className="card-head">
         <h2 className="card-title">Alerts</h2>
-        <span className={`live-dot ${live ? "on" : "off"}`}>
-          {live ? "Live" : "Offline"}
-        </span>
+        <div className="topbar-actions">
+          {hasUnread && (
+            <button className="btn small" onClick={() => void markAllRead()}>
+              Mark all read
+            </button>
+          )}
+          <span className={`live-dot ${status === "open" ? "on" : "off"}`}>
+            {STATUS_LABEL[status]}
+          </span>
+        </div>
       </div>
 
       {error && <div className="alert error">{error}</div>}
@@ -128,6 +171,12 @@ export default function AlertsPanel() {
             </li>
           ))}
         </ul>
+      )}
+
+      {nextUrl && !loading && (
+        <button className="btn ghost" onClick={() => void loadMore()}>
+          Load older alerts
+        </button>
       )}
     </section>
   );

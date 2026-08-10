@@ -20,8 +20,11 @@ import logging
 from datetime import timedelta
 
 from celery import shared_task
+from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
+from django.db.models import DurationField, ExpressionWrapper, F, IntegerField, Q
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from ai import ClaudeClient, AlertVerdict
@@ -39,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 # Lock lifetime: comfortably longer than one evaluation (price fetch + AI call).
 # If a worker dies without releasing, the key expires and evaluation self-heals.
+# Must stay ABOVE CELERY_TASK_TIME_LIMIT (settings): the hard time limit kills a
+# runaway task before its lock can expire out from under it.
 EVAL_LOCK_TTL = 300
 
 
@@ -48,26 +53,39 @@ def _lock_key(strategy_id: str) -> str:
 
 @shared_task
 def sweep_due_strategies():
+    """Enqueue every due strategy exactly once.
+
+    The due filter runs in the database (per-row poll interval expressed as a
+    duration), so a tick's cost scales with the number of DUE strategies, not
+    with every active strategy. Each due row is then claimed with the same
+    compare-and-set as before, so overlapping sweeps stay duplicate-free.
+    """
     now = timezone.now()
     queued = 0
-    active = Strategy.objects.filter(status=Strategy.Status.ACTIVE).only(
-        "id", "last_evaluated_at", "poll_interval_minutes"
+    # Cast: kept for engine portability — SQLite's duration arithmetic rejects
+    # PositiveIntegerField operands; on Postgres the cast is a no-op.
+    poll_delta = ExpressionWrapper(
+        timedelta(minutes=1) * Cast("poll_interval_minutes", output_field=IntegerField()),
+        output_field=DurationField(),
     )
-    for strategy in active:
-        due = (
-            strategy.last_evaluated_at is None
-            or (now - strategy.last_evaluated_at) >= timedelta(minutes=strategy.poll_interval_minutes)
+    due = (
+        Strategy.objects.filter(status=Strategy.Status.ACTIVE)
+        .annotate(poll_delta=poll_delta)
+        .filter(
+            Q(last_evaluated_at__isnull=True)
+            | Q(last_evaluated_at__lte=now - F("poll_delta"))
         )
-        if not due:
-            continue
+        .values_list("id", "last_evaluated_at")
+    )
+    for pk, last_eval in due.iterator(chunk_size=500):
         # Atomically claim: only enqueue if THIS row still has the last_evaluated_at
         # we read. A concurrent sweep that already claimed it updates 0 rows here,
         # so the strategy is enqueued exactly once per due window.
         claimed = Strategy.objects.filter(
-            pk=strategy.pk, last_evaluated_at=strategy.last_evaluated_at
+            pk=pk, last_evaluated_at=last_eval
         ).update(last_evaluated_at=now)
         if claimed:
-            evaluate_strategy.delay(str(strategy.pk))
+            evaluate_strategy.delay(str(pk))
             queued += 1
     return {"queued": queued}
 
@@ -85,12 +103,15 @@ def evaluate_strategy(strategy_id: str):
         cache.delete(key)
 
 
-def _persist_eval(strategy: Strategy, value, now, error: str = ""):
-    """Record an evaluation that did NOT fire an alert."""
+def _persist_eval(strategy: Strategy, value, now):
+    """Record a successful evaluation that did NOT fire an alert."""
     strategy.last_metric_value = value
     strategy.last_evaluated_at = now
-    strategy.last_error = error
-    strategy.save(update_fields=["last_metric_value", "last_evaluated_at", "last_error"])
+    strategy.last_error = ""
+    strategy.consecutive_failures = 0
+    strategy.save(update_fields=[
+        "last_metric_value", "last_evaluated_at", "last_error", "consecutive_failures",
+    ])
 
 
 
@@ -156,7 +177,8 @@ def _run_evaluation(strategy_id: str):
 
         # S2: create the alert AND stamp the trigger in one transaction, so a crash
         # can never leave an alert without its cooldown stamp. select_for_update is
-        # belt-and-suspenders on top of the cache lock (a no-op on sqlite in tests).
+        # belt-and-suspenders on top of the cache lock (and is exercised for real
+        # in tests, which run on PostgreSQL).
         with transaction.atomic():
             locked = Strategy.objects.select_for_update().get(id=strategy_id)
             if locked.last_triggered_at and (now - locked.last_triggered_at) < timedelta(
@@ -171,7 +193,7 @@ def _run_evaluation(strategy_id: str):
                 indicator=locked.indicator,
                 operator=locked.operator,
                 threshold=locked.threshold,
-                metric_value=value if value is not None else 0.0,
+                metric_value=value,
                 ai_used=verdict.ai_used,
                 ai_rationale=verdict.rationale,
                 message=message,
@@ -182,8 +204,10 @@ def _run_evaluation(strategy_id: str):
             locked.last_metric_value = value
             locked.last_evaluated_at = now
             locked.last_error = ""
+            locked.consecutive_failures = 0
             locked.save(update_fields=[
-                "last_triggered_at", "last_metric_value", "last_evaluated_at", "last_error",
+                "last_triggered_at", "last_metric_value", "last_evaluated_at",
+                "last_error", "consecutive_failures",
             ])
 
         # Deliver AFTER commit — network I/O must not hold a DB lock/transaction open.
@@ -193,7 +217,18 @@ def _run_evaluation(strategy_id: str):
     except Exception as exc:  # noqa: BLE001
         logger.exception("Strategy %s evaluation failed", strategy_id)
         try:
-            _persist_eval(strategy, strategy.last_metric_value, now, error=str(exc)[:500])
+            limit = int(getattr(settings, "STRATEGY_MAX_CONSECUTIVE_FAILURES", 5))
+            strategy.consecutive_failures += 1
+            strategy.last_evaluated_at = now
+            strategy.last_error = str(exc)[:500]
+            fields = ["consecutive_failures", "last_evaluated_at", "last_error"]
+            if strategy.consecutive_failures >= limit:
+                # Circuit breaker: stop burning fleet capacity on a strategy
+                # that keeps failing. The user re-arms it by setting the
+                # status back to active (which resets the counter).
+                strategy.status = Strategy.Status.FAILED
+                fields.append("status")
+            strategy.save(update_fields=fields)
         except Exception:  # noqa: BLE001
             pass
         return {"status": "error", "error": str(exc)}

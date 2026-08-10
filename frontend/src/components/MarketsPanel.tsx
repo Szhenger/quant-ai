@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
-import api from "../api/client";
+import api, { fetchAllPages } from "../api/client";
 import { extractError } from "../api/errors";
-import type { MarketAnalysis, Paginated, WatchedTicker } from "../api/types";
+import type { MarketAnalysis, WatchedTicker } from "../api/types";
 import LineChart from "./LineChart";
 
 function formatValue(v: number | null): string {
@@ -24,8 +24,7 @@ export default function MarketsPanel() {
   const loadWatchlist = async () => {
     setWlError(null);
     try {
-      const res = await api.get<Paginated<WatchedTicker>>("/watchlist/");
-      setWatchlist(res.data.results);
+      setWatchlist(await fetchAllPages<WatchedTicker>("/watchlist/"));
     } catch (err) {
       setWlError(extractError(err));
     }

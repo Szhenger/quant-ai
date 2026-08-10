@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from "react";
-import api from "../api/client";
+import api, { fetchAllPages } from "../api/client";
 import { extractError } from "../api/errors";
-import type { EvaluateResult, Paginated, ReplayResult, Strategy } from "../api/types";
+import type { EvaluateResult, ReplayResult, Strategy } from "../api/types";
 import StrategyForm from "./StrategyForm";
 import StrategyGraphBuilder from "./StrategyGraphBuilder";
 
@@ -54,8 +54,7 @@ export default function StrategiesPanel() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get<Paginated<Strategy>>("/strategies/");
-      setStrategies(res.data.results);
+      setStrategies(await fetchAllPages<Strategy>("/strategies/"));
     } catch (err) {
       setError(extractError(err));
     } finally {
@@ -97,6 +96,19 @@ export default function StrategiesPanel() {
     setRowBusy((s) => ({ ...s, [id]: true }));
     try {
       await api.delete(`/strategies/${id}/`);
+      await load();
+    } catch (err) {
+      setError(extractError(err));
+    } finally {
+      setRowBusy((s) => ({ ...s, [id]: false }));
+    }
+  };
+
+  // Reactivate a strategy the failure circuit breaker paused.
+  const resume = async (id: string) => {
+    setRowBusy((s) => ({ ...s, [id]: true }));
+    try {
+      await api.patch(`/strategies/${id}/`, { status: "active" });
       await load();
     } catch (err) {
       setError(extractError(err));
@@ -149,7 +161,9 @@ export default function StrategiesPanel() {
                           {s.indicator} {s.operator} {s.threshold}
                         </td>
                         <td>
-                          <span className="badge status">{s.status}</span>
+                          <span className="badge status" title={s.last_error || undefined}>
+                            {s.status}
+                          </span>
                         </td>
                         <td className="muted">{formatDate(s.last_triggered_at)}</td>
                         <td className="muted">{evalState[s.id] ?? "—"}</td>
@@ -169,6 +183,16 @@ export default function StrategiesPanel() {
                           >
                             Replay
                           </button>
+                          {s.status === "failed" && (
+                            <button
+                              className="btn small"
+                              onClick={() => void resume(s.id)}
+                              disabled={rowBusy[s.id]}
+                              title="Reactivate this strategy and re-arm its failure circuit breaker"
+                            >
+                              Resume
+                            </button>
+                          )}
                           <button
                             className="btn small danger"
                             onClick={() => void remove(s.id)}

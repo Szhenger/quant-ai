@@ -71,9 +71,15 @@ export interface Strategy {
   notify_in_app: boolean;
   notify_email: boolean;
   webhook_url: string;
+  // Read-only, auto-generated: HMAC key receivers use to verify the
+  // X-QuantAI-Signature header on webhook deliveries.
+  webhook_secret: string;
   status: StrategyStatus;
   poll_interval_minutes: number;
   cooldown_minutes: number;
+  // Circuit breaker: consecutive failed evaluations; the backend pauses the
+  // strategy to status "failed" at its threshold.
+  consecutive_failures: number;
   last_evaluated_at: string | null;
   last_triggered_at: string | null;
   last_metric_value: number | null;

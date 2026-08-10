@@ -237,6 +237,13 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
   const [success, setSuccess] = useState<string | null>(null);
   const counter = useRef(2);
 
+  // Delivery/scheduling settings — same knobs as the plain form builder.
+  const [pollInterval, setPollInterval] = useState("15");
+  const [cooldown, setCooldown] = useState("60");
+  const [notifyInApp, setNotifyInApp] = useState(true);
+  const [notifyEmail, setNotifyEmail] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
+
   useEffect(() => {
     (async () => {
       try {
@@ -313,6 +320,11 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
           return { id: n.id, type: n.type, data: n.data };
         }),
         edges: edges.map((e) => ({ source: e.source, target: e.target })),
+        notify_in_app: notifyInApp,
+        notify_email: notifyEmail,
+        webhook_url: webhookUrl.trim(),
+        poll_interval_minutes: Number(pollInterval),
+        cooldown_minutes: Number(cooldown),
       };
       const res = await api.post("/strategies/deploy-graph/", payload);
       setSuccess(`Deployed strategy: ${res.data?.name ?? "created"}.`);
@@ -339,6 +351,54 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
         <button className="btn primary" onClick={() => void onDeploy()} disabled={deploying}>
           {deploying ? "Deploying…" : "Deploy graph"}
         </button>
+      </div>
+
+      <div className="row gap wrap builder-toolbar">
+        <label className="field">
+          <span>Poll (min)</span>
+          <input
+            className="nodrag"
+            type="number"
+            min={1}
+            value={pollInterval}
+            onChange={(e) => setPollInterval(e.target.value)}
+            aria-label="Poll interval minutes"
+          />
+        </label>
+        <label className="field">
+          <span>Cooldown (min)</span>
+          <input
+            className="nodrag"
+            type="number"
+            min={1}
+            value={cooldown}
+            onChange={(e) => setCooldown(e.target.value)}
+            aria-label="Cooldown minutes"
+          />
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={notifyInApp}
+            onChange={(e) => setNotifyInApp(e.target.checked)}
+          />
+          <span>Notify in-app</span>
+        </label>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={notifyEmail}
+            onChange={(e) => setNotifyEmail(e.target.checked)}
+          />
+          <span>Notify email</span>
+        </label>
+        <input
+          className="grow"
+          value={webhookUrl}
+          onChange={(e) => setWebhookUrl(e.target.value)}
+          placeholder="Webhook URL (optional)"
+          aria-label="Webhook URL"
+        />
       </div>
 
       {error && <div className="alert error">{error}</div>}

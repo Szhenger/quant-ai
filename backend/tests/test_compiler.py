@@ -78,6 +78,32 @@ def test_compile_rejects_disconnected_conditions():
         compile_graph(nodes, edges)
 
 
+def test_compile_rejects_multiple_conditions_feeding_ai():
+    # Two quant nodes wired straight into the AI node must be an error, not a
+    # silent "keep the first, drop the rest".
+    nodes = [
+        {"id": "asset", "type": "asset", "data": {"ticker": "AAPL"}},
+        {"id": "c1", "type": "quant", "data": {"indicator": "RSI", "operator": "<", "value": 30}},
+        {"id": "c2", "type": "quant", "data": {"indicator": "PRICE", "operator": ">", "value": 0}},
+        {"id": "ai", "type": "ai", "data": {"prompt": "x"}},
+    ]
+    edges = [
+        {"source": "asset", "target": "c1"},
+        {"source": "c1", "target": "ai"},
+        {"source": "c2", "target": "ai"},
+    ]
+    with pytest.raises(GraphCompilationError, match="Logic"):
+        compile_graph(nodes, edges)
+
+
+def test_compile_tolerates_duplicate_edges_to_ai():
+    # Two copies of the SAME edge are one condition, not "multiple conditions".
+    g = _graph()
+    g["edges"].append({"source": "n2", "target": "n3"})  # duplicate of n2->n3
+    p = compile_graph(g["nodes"], g["edges"])
+    assert p["condition"]["left"]["indicator"] == "Z_SCORE"
+
+
 def test_compile_logic_node_without_inputs():
     nodes = [
         {"id": "asset", "type": "asset", "data": {"ticker": "AAPL"}},
