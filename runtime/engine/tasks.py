@@ -36,7 +36,7 @@ from feeder import (
     primary_metric,
 )
 from .models import Strategy, Alert
-from .delivery import deliver_alert
+from .delivery import deliver_alert, deliver_alert_channel, notify_strategy_failed
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ def _lock_key(strategy_id: str) -> str:
     return f"quantai:eval-lock:{strategy_id}"
 
 
-@shared_task
+@shared_task(ignore_result=True)
 def sweep_due_strategies():
     """Enqueue every due strategy exactly once.
 
@@ -85,12 +85,25 @@ def sweep_due_strategies():
             pk=pk, last_evaluated_at=last_eval
         ).update(last_evaluated_at=now)
         if claimed:
-            evaluate_strategy.delay(str(pk))
+            try:
+                evaluate_strategy.delay(str(pk))
+            except Exception:  # noqa: BLE001
+                # Broker hiccup after the claim: roll the claim back so the
+                # strategy is due again next sweep instead of silently skipping
+                # a full poll window (which could be a day).
+                logger.exception("Enqueue failed for strategy %s; rolling back claim", pk)
+                Strategy.objects.filter(pk=pk, last_evaluated_at=now).update(
+                    last_evaluated_at=last_eval
+                )
+                continue
             queued += 1
     return {"queued": queued}
 
 
-@shared_task
+# acks_late: a worker killed mid-evaluation (OOM, deploy) gets the message
+# redelivered instead of losing the run outright. Safe to redeliver — the eval
+# lock and the cooldown transaction make the evaluation idempotent.
+@shared_task(acks_late=True)
 def evaluate_strategy(strategy_id: str):
     """Evaluate one strategy under a per-strategy lock (idempotent w.r.t. itself)."""
     key = _lock_key(strategy_id)
@@ -217,6 +230,7 @@ def _run_evaluation(strategy_id: str):
 
     except Exception as exc:  # noqa: BLE001
         logger.exception("Strategy %s evaluation failed", strategy_id)
+        tripped = False
         try:
             limit = int(getattr(settings, "STRATEGY_MAX_CONSECUTIVE_FAILURES", 5))
             strategy.consecutive_failures += 1
@@ -229,7 +243,81 @@ def _run_evaluation(strategy_id: str):
                 # status back to active (which resets the counter).
                 strategy.status = Strategy.Status.FAILED
                 fields.append("status")
+                tripped = True
             strategy.save(update_fields=fields)
         except Exception:  # noqa: BLE001
             pass
+        if tripped:
+            # A tripped breaker means "this rule stopped monitoring forever
+            # until you act" — for a trader, silence here is a lost-alert
+            # failure. Tell them through the channels they already opted into.
+            try:
+                notify_strategy_failed(strategy)
+            except Exception:  # noqa: BLE001
+                logger.exception("Failed to notify owner of tripped strategy %s", strategy_id)
         return {"status": "error", "error": str(exc)}
+
+
+# Reconciliation floor: an alert this young may simply still be in the delivery
+# queue — re-enqueueing it would guarantee duplicates rather than repair a loss.
+RECONCILE_MIN_AGE_MINUTES = 10
+# Reconciliation ceiling: bound each pass; older gaps were already retried by
+# every earlier pass.
+RECONCILE_MAX_AGE_HOURS = 24
+
+
+@shared_task(ignore_result=True)
+def reconcile_undelivered_alerts():
+    """Re-enqueue delivery for alerts whose enabled channels never recorded an
+    outcome.
+
+    Closes the crash window between an alert's commit and its delivery fan-out:
+    without this, a worker death there leaves an alert no channel ever attempts
+    (the cooldown is stamped, so it never re-fires either). Runs every 5
+    minutes; delivery is thereby at-least-once — receivers dedupe on the alert
+    id carried in every payload.
+    """
+    now = timezone.now()
+    window = Alert.objects.filter(
+        created_at__lt=now - timedelta(minutes=RECONCILE_MIN_AGE_MINUTES),
+        created_at__gte=now - timedelta(hours=RECONCILE_MAX_AGE_HOURS),
+    ).select_related("strategy")
+    requeued = 0
+    for alert in window.iterator(chunk_size=200):
+        strategy = alert.strategy
+        if strategy is None:
+            # Strategy deleted since firing: in-app is the only channel that
+            # doesn't depend on strategy config.
+            expected = ["in_app"]
+        else:
+            expected = []
+            if strategy.notify_in_app:
+                expected.append("in_app")
+            if strategy.notify_email:
+                expected.append("email")
+            if strategy.webhook_url:
+                expected.append("webhook")
+        recorded = alert.delivery or {}
+        for channel in expected:
+            if channel not in recorded:
+                deliver_alert_channel.delay(str(alert.id), channel)
+                requeued += 1
+    if requeued:
+        logger.warning("Delivery reconciliation re-enqueued %d channel(s)", requeued)
+
+
+@shared_task(ignore_result=True)
+def prune_expired_records():
+    """Daily retention: unbounded tables degrade to a stall over months.
+
+    Deletes alerts past ``ALERT_RETENTION_DAYS`` and flushes expired JWTs from
+    the blacklist tables (rotation writes one row per refresh, forever).
+    """
+    cutoff = timezone.now() - timedelta(
+        days=int(getattr(settings, "ALERT_RETENTION_DAYS", 180))
+    )
+    deleted, _ = Alert.objects.filter(created_at__lt=cutoff).delete()
+    from django.core.management import call_command
+
+    call_command("flushexpiredtokens")
+    logger.info("Retention: pruned %d alert(s) and expired tokens", deleted)

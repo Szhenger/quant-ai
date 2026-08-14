@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import api from "../api/client";
 import { extractError } from "../api/errors";
-import type { IndicatorCatalog } from "../api/types";
+import type { Indicator, IndicatorCatalog } from "../api/types";
 
 interface StrategyFormProps {
   onCreated: () => void;
@@ -18,14 +18,19 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
   // catalog defaults whenever the indicator changes.
   const [params, setParams] = useState<Record<string, string>>({});
   const [operator, setOperator] = useState("");
-  const [threshold, setThreshold] = useState("30");
+  // Seeded from the indicator's default_threshold (empty when it has none, so
+  // the user must pick one on the indicator's own scale). Once the user edits
+  // it, switching indicator stops overwriting their value.
+  const [threshold, setThreshold] = useState("");
+  const [thresholdTouched, setThresholdTouched] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [notifyInApp, setNotifyInApp] = useState(true);
   const [notifyEmail, setNotifyEmail] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [pollInterval, setPollInterval] = useState("15");
-  const [cooldown, setCooldown] = useState("60");
+  // Bars are daily, so a shorter cooldown can re-alert on the same bar.
+  const [cooldown, setCooldown] = useState("1440");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,15 +50,23 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
 
   const selectedIndicator = catalog?.indicators.find((i) => i.key === indicator);
 
+  const defaultThreshold = (spec: Indicator | undefined): string =>
+    spec?.default_threshold != null ? String(spec.default_threshold) : "";
+
   const pickIndicator = (key: string) => {
     setIndicator(key);
-    const defaults = catalog?.indicators.find((i) => i.key === key)?.defaults ?? {};
+    const spec = catalog?.indicators.find((i) => i.key === key);
     setParams(
-      Object.fromEntries(Object.entries(defaults).map(([k, v]) => [k, String(v)])),
+      Object.fromEntries(Object.entries(spec?.defaults ?? {}).map(([k, v]) => [k, String(v)])),
     );
+    // Re-seed the threshold onto the new indicator's scale — unless the user
+    // has typed their own value since.
+    if (!thresholdTouched) {
+      setThreshold(defaultThreshold(spec));
+    }
   };
 
-  // Seed params once the catalog (and the initial indicator) arrive.
+  // Seed params and threshold once the catalog (and the initial indicator) arrive.
   useEffect(() => {
     if (!selectedIndicator) return;
     setParams((prev) =>
@@ -63,6 +76,9 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
             Object.entries(selectedIndicator.defaults).map(([k, v]) => [k, String(v)]),
           ),
     );
+    if (!thresholdTouched) {
+      setThreshold((prev) => (prev !== "" ? prev : defaultThreshold(selectedIndicator)));
+    }
   }, [selectedIndicator]);
 
   const submittedParams = (): Record<string, number> =>
@@ -173,7 +189,10 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
             type="number"
             step="any"
             value={threshold}
-            onChange={(e) => setThreshold(e.target.value)}
+            onChange={(e) => {
+              setThresholdTouched(true);
+              setThreshold(e.target.value);
+            }}
             required
           />
         </label>
@@ -196,6 +215,10 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
             value={cooldown}
             onChange={(e) => setCooldown(e.target.value)}
           />
+          <span className="muted small">
+            Bars are daily — a cooldown shorter than 1440 min can re-alert on the same
+            bar.
+          </span>
         </label>
 
         <label className="field">

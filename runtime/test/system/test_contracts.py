@@ -19,7 +19,8 @@ pytestmark = pytest.mark.django_db
 # Mirrors `Strategy` in console/src/api/types.ts.
 STRATEGY_FIELDS = {
     "id", "name", "ticker", "indicator", "params", "operator", "threshold",
-    "condition", "ai_enabled", "ai_prompt", "notify_in_app", "notify_email",
+    "condition", "condition_summary",
+    "ai_enabled", "ai_prompt", "notify_in_app", "notify_email",
     "webhook_url", "webhook_secret", "status", "poll_interval_minutes",
     "cooldown_minutes", "consecutive_failures", "last_evaluated_at",
     "last_triggered_at", "last_metric_value", "last_error",
@@ -115,7 +116,9 @@ def test_market_analysis_shape(auth_client):
 def test_indicator_catalog_shape(auth_client):
     resp = auth_client.get("/api/v1/indicators/")
     assert set(resp.data) == {"indicators", "operators"}
-    assert set(resp.data["indicators"][0]) == {"key", "label", "unit", "defaults", "help"}
+    assert set(resp.data["indicators"][0]) == {
+        "key", "label", "unit", "defaults", "default_threshold", "help",
+    }
     assert set(resp.data["operators"][0]) == {"key", "label"}
 
 

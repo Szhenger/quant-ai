@@ -16,6 +16,11 @@ from .settings import *  # noqa: F401,F403
 CELERY_TASK_ALWAYS_EAGER = True
 CELERY_TASK_EAGER_PROPAGATES = True
 
+# The test container sets DJANGO_DEBUG=False (prod parity), which enables the
+# in-app HTTPS redirect — but the test client speaks plain HTTP, so every
+# request would 301. Transport enforcement is not under test here.
+SECURE_SSL_REDIRECT = False
+
 # In-memory channel layer (no Redis needed for tests).
 CHANNEL_LAYERS = {"default": {"BACKEND": "channels.layers.InMemoryChannelLayer"}}
 

@@ -34,6 +34,9 @@ export interface Indicator {
   label: string;
   unit: string;
   defaults: Record<string, unknown>;
+  // Sensible starting threshold on this indicator's own scale; null for
+  // price-scaled indicators where no universal default exists.
+  default_threshold: number | null;
   help: string;
 }
 
@@ -77,6 +80,9 @@ export interface Strategy {
   // Composite mode: an AND/OR condition tree. Authoritative when present; the
   // flat fields above are then a representative leaf for display.
   condition: unknown | null;
+  // Read-only: the strategy's real firing rule as one human-readable line,
+  // correct for both simple and composite strategies.
+  condition_summary: string;
   ai_enabled: boolean;
   ai_prompt: string;
   notify_in_app: boolean;
@@ -102,7 +108,16 @@ export interface Strategy {
 export interface EvaluateResult {
   // "queued": the evaluation was dispatched to the worker fleet (202) — the
   // outcome lands on the strategy row / alerts, not in this response.
-  status: "alerted" | "quant_not_met" | "cooldown" | "ai_suppressed" | "error" | "queued" | string;
+  // "locked": another evaluation of the same strategy is already running.
+  status:
+    | "alerted"
+    | "quant_not_met"
+    | "cooldown"
+    | "ai_suppressed"
+    | "error"
+    | "queued"
+    | "locked"
+    | string;
   [key: string]: unknown;
 }
 

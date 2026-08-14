@@ -58,6 +58,14 @@ if not DEBUG:
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
+    # Transport enforcement in the app, not only at the edge. /healthz/ stays
+    # exempt: infrastructure probes hit it over plain HTTP without the
+    # forwarded-proto header and must not be answered with a redirect.
+    SECURE_SSL_REDIRECT = env_bool("DJANGO_SECURE_SSL_REDIRECT", True)
+    SECURE_REDIRECT_EXEMPT = [r"^healthz/?$"]
+    SECURE_HSTS_SECONDS = int(os.environ.get("DJANGO_HSTS_SECONDS", str(30 * 24 * 3600)))
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = env_bool("DJANGO_HSTS_INCLUDE_SUBDOMAINS", True)
+    SECURE_HSTS_PRELOAD = env_bool("DJANGO_HSTS_PRELOAD", False)
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -165,12 +173,31 @@ CELERY_WORKER_CONCURRENCY = int(os.environ.get("CELERY_CONCURRENCY", "4"))
 # engine.tasks), so a lock can never expire while its task is still running.
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "210"))
 CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "240"))
+# Results expire quickly: nothing reads a stored result except the eager path
+# in the manual-evaluate view (which never touches the backend). Without this,
+# one sweep result per minute plus one per evaluation accrues in Redis for
+# Celery's default 24h — on a small noeviction Redis that is an outage clock.
+CELERY_RESULT_EXPIRES = int(os.environ.get("CELERY_RESULT_EXPIRES", "3600"))
 CELERY_BEAT_SCHEDULE = {
     "sweep-due-strategies-every-minute": {
         "task": "engine.tasks.sweep_due_strategies",
         "schedule": 60.0,
     },
+    # Delivery reconciliation: re-enqueue channels that never recorded an
+    # outcome (worker died between the alert's commit and the fan-out).
+    "reconcile-undelivered-alerts": {
+        "task": "engine.tasks.reconcile_undelivered_alerts",
+        "schedule": 300.0,
+    },
+    # Retention: unbounded tables degrade to a stall over months, not days.
+    "prune-expired-records-daily": {
+        "task": "engine.tasks.prune_expired_records",
+        "schedule": 24 * 3600.0,
+    },
 }
+
+# How long fired alerts are kept before the daily retention job deletes them.
+ALERT_RETENTION_DAYS = int(os.environ.get("ALERT_RETENTION_DAYS", "180"))
 
 # Consecutive evaluation failures before a strategy is auto-paused to FAILED
 # (the circuit breaker). Reactivating the strategy re-arms it.
@@ -217,6 +244,10 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Quantitative market monitoring, AI-contextualised alerting, and strategy management.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # drf-spectacular's serve views default to AllowAny, bypassing the
+    # project-wide IsAuthenticated: the API surface should not be publicly
+    # enumerable.
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
 }
 
 CORS_ALLOWED_ORIGINS = os.environ.get(

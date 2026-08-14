@@ -1,12 +1,15 @@
 services:
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: quantai
       POSTGRES_PASSWORD: quantai
       POSTGRES_DB: quantai
     ports:
-      - "5432:5432"
+      # Loopback only: the dev credentials are public, so the port must not be
+      # reachable from the local network.
+      - "127.0.0.1:5432:5432"
     volumes:
       - quantai_pg:/var/lib/postgresql/data
     healthcheck:
@@ -17,8 +20,11 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
-      - "6379:6379"
+      # Loopback only: Redis is password-less and carries the Celery broker,
+      # channel layer and eval locks.
+      - "127.0.0.1:6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,6 +33,7 @@ services:
 
   api:
     build: ./runtime
+    restart: unless-stopped
     command: sh -c "python manage.py migrate && daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     volumes:
       - ./runtime:/app
@@ -54,10 +61,19 @@ services:
 
   worker:
     build: ./runtime
+    # restart matters most here: a crashed worker otherwise stays exited and
+    # sweeps/evaluations stop silently while the api healthcheck stays green.
+    restart: unless-stopped
     command: celery -A config worker --loglevel=info
     volumes:
       - ./runtime:/app
     environment: *backend_env
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME --timeout 10"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 30s
     depends_on:
       db:
         condition: service_healthy
@@ -66,6 +82,7 @@ services:
 
   beat:
     build: ./runtime
+    restart: unless-stopped
     command: celery -A config beat --loglevel=info
     volumes:
       - ./runtime:/app

@@ -47,6 +47,11 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
         """Handler for {'type': 'alert.message', 'data': ...} group sends."""
         await self.send_json({"type": "alert", "alert": event["data"]})
 
+    async def strategy_status(self, event):
+        """Handler for {'type': 'strategy.status', 'data': ...} group sends —
+        lifecycle notifications (e.g. a circuit breaker tripping to FAILED)."""
+        await self.send_json({"type": "strategy_status", "strategy": event["data"]})
+
     @database_sync_to_async
     def _owns(self, user, workspace_id):
         # workspace_id is already a validated canonical UUID string here.

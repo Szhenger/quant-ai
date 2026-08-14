@@ -18,11 +18,17 @@ import type { Alert, UnreadCount } from "../api/types";
 interface RealtimeState {
   status: SocketStatus;
   setStatus: (s: SocketStatus) => void;
+  // Latest strategy lifecycle notice pushed by the server (circuit breaker
+  // tripped, etc.) — rendered as a dismissible banner in the strategies panel.
+  strategyNotice: string | null;
+  setStrategyNotice: (message: string | null) => void;
 }
 
 export const useRealtimeStore = create<RealtimeState>((set) => ({
   status: "down",
   setStatus: (status) => set({ status }),
+  strategyNotice: null,
+  setStrategyNotice: (strategyNotice) => set({ strategyNotice }),
 }));
 
 export function useAlertsSocket(): void {
@@ -35,6 +41,10 @@ export function useAlertsSocket(): void {
       useRealtimeStore.getState().setStatus("down");
       return;
     }
+
+    // Whether THIS effect's socket has completed a connect before — true from
+    // the first open, so any later open is a reconnect after an outage.
+    let hadOpened = false;
 
     const socket = new ReconnectingAlertSocket({
       // Token: read the CURRENT value at each connect, so refreshed tokens are
@@ -66,7 +76,26 @@ export function useAlertsSocket(): void {
           );
         }
       },
-      onStatus: (s) => useRealtimeStore.getState().setStatus(s),
+      onStrategyStatus: (raw) => {
+        const payload = raw as { message?: unknown };
+        if (typeof payload.message === "string") {
+          useRealtimeStore.getState().setStrategyNotice(payload.message);
+        }
+        // The pushed strategy changed server-side (e.g. status -> failed).
+        void qc.invalidateQueries({ queryKey: keys.strategies(workspaceId) });
+      },
+      onStatus: (s) => {
+        // Missed-alert catch-up: alerts fired while the socket was down were
+        // group-sent to nobody. On every RE-connect (not the initial open),
+        // refetch the list — the id-dedupe in realtime/merge makes replays of
+        // frames that did arrive harmless.
+        if (s === "open" && hadOpened) {
+          void qc.invalidateQueries({ queryKey: keys.alerts(workspaceId) });
+          void qc.invalidateQueries({ queryKey: keys.unread(workspaceId) });
+        }
+        if (s === "open") hadOpened = true;
+        useRealtimeStore.getState().setStatus(s);
+      },
     });
 
     socket.start();
