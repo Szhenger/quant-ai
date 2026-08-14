@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import logging
+import time
 
 from asgiref.sync import async_to_sync
 from celery import shared_task
@@ -20,6 +21,7 @@ from django.core.mail import send_mail
 from django.db import transaction
 from rest_framework.renderers import JSONRenderer
 
+from identity.validators import UnresolvableWebhookHostError, ensure_public_webhook_url
 from .serializers import AlertSerializer
 
 logger = logging.getLogger(__name__)
@@ -131,19 +133,42 @@ def _send_webhook(alert) -> dict:
     if strategy is None or not strategy.webhook_url:
         return {"ok": False, "permanent": True,
                 "detail": "strategy deleted or webhook removed"}
+    # Re-validate at delivery time: the URL was checked at save, but DNS may
+    # have changed since (rebinding toward a private address). Redirects are
+    # NOT followed below for the same reason — a public URL answering
+    # 302 -> http://169.254.169.254/ must not be dereferenced from inside
+    # our network.
+    try:
+        ensure_public_webhook_url(strategy.webhook_url)
+    except UnresolvableWebhookHostError as exc:
+        # A resolver blip is transient — retry with backoff, don't drop.
+        return {"ok": False, "detail": str(exc)}
+    except ValueError as exc:
+        return {"ok": False, "permanent": True,
+                "detail": f"unsafe webhook URL: {exc}"}
     try:
         import requests
 
-        # Sign the exact body bytes so the receiver can verify with the
-        # strategy's webhook_secret (exposed read-only in the API).
+        # Sign "<timestamp>.<body bytes>" so the receiver can verify with the
+        # strategy's webhook_secret (exposed read-only in the API) AND reject
+        # replayed deliveries by checking the timestamp's freshness.
         body = json.dumps(_payload(alert), separators=(",", ":")).encode()
-        headers = {"Content-Type": "application/json"}
+        timestamp = str(int(time.time()))
+        headers = {"Content-Type": "application/json",
+                   "X-QuantAI-Timestamp": timestamp}
         if strategy.webhook_secret:
-            signature = hmac.new(strategy.webhook_secret.encode(), body,
+            signature = hmac.new(strategy.webhook_secret.encode(),
+                                 f"{timestamp}.".encode() + body,
                                  hashlib.sha256).hexdigest()
             headers["X-QuantAI-Signature"] = f"sha256={signature}"
-        resp = requests.post(strategy.webhook_url, data=body, headers=headers, timeout=5)
-        return {"ok": resp.ok, "detail": f"HTTP {resp.status_code}"}
+        resp = requests.post(strategy.webhook_url, data=body, headers=headers,
+                             timeout=5, allow_redirects=False)
+        if resp.ok:
+            return {"ok": True, "detail": f"HTTP {resp.status_code}"}
+        # 3xx: redirects are deliberately not followed. 4xx (bar 408/429): the
+        # receiver rejected the delivery — retrying the same request is futile.
+        permanent = 300 <= resp.status_code < 500 and resp.status_code not in (408, 429)
+        return {"ok": False, "permanent": permanent, "detail": f"HTTP {resp.status_code}"}
     except Exception as exc:  # noqa: BLE001
         logger.warning("Webhook delivery failed: %s", exc)
         return {"ok": False, "detail": str(exc)}

@@ -7,6 +7,12 @@ from urllib.parse import urlparse
 _TICKER_RE = re.compile(r"[A-Z0-9.\-]{1,16}")
 
 
+class UnresolvableWebhookHostError(ValueError):
+    """The webhook host did not resolve. Distinct from a resolved-but-private
+    host: resolution failures are often transient (resolver blip, propagation),
+    so delivery treats them as retryable while validation still rejects them."""
+
+
 def normalize_ticker(value: str) -> str:
     """Uppercase/strip a ticker and validate its shape.
 
@@ -40,7 +46,9 @@ def ensure_public_webhook_url(url: str) -> None:
         try:
             infos = socket.getaddrinfo(host, None)
         except OSError:
-            raise ValueError(f"Webhook host {host!r} could not be resolved.")
+            raise UnresolvableWebhookHostError(
+                f"Webhook host {host!r} could not be resolved."
+            )
         # Strip any IPv6 zone id ("fe80::1%en0") before parsing.
         addresses = [ipaddress.ip_address(str(info[4][0]).split("%")[0]) for info in infos]
     if not addresses or not all(a.is_global for a in addresses):

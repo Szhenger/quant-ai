@@ -18,7 +18,7 @@ from feeder import (
     describe_tree,
     replay_condition,
 )
-from .models import Strategy, Alert
+from .models import Strategy, Alert, _new_webhook_secret
 from .serializers import StrategySerializer, AlertSerializer
 from .compiler import compile_graph, GraphCompilationError
 
@@ -91,14 +91,41 @@ class StrategyViewSet(viewsets.ModelViewSet):
         serializer.save(workspace=workspace)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=["post"], url_path="rotate-secret")
+    def rotate_secret(self, request, pk=None):
+        """Regenerate this strategy's webhook HMAC secret.
+
+        For when a secret leaks (or as routine hygiene): deliveries signed
+        after this call verify only against the new secret, so the receiver
+        must be updated in the same operation. Returns the full strategy so
+        the client can show the new secret immediately.
+        """
+        strategy = self.get_object()
+        strategy.webhook_secret = _new_webhook_secret()
+        # auto_now only fires for fields named in update_fields — include it.
+        strategy.save(update_fields=["webhook_secret", "updated_at"])
+        return Response(self.get_serializer(strategy).data)
+
     @action(detail=True, methods=["post"],
             throttle_classes=[ScopedRateThrottle], throttle_scope="evaluate")
     def evaluate(self, request, pk=None):
-        """Manually evaluate a strategy now (useful for testing)."""
+        """Manually evaluate a strategy now (useful for testing).
+
+        The evaluation (price fetch + optional AI call, up to ~a minute of
+        network I/O) is dispatched to the worker fleet, NOT run in-request:
+        under ASGI every sync view in a process shares one thread, so running
+        it here would stall every other request in the process for the
+        duration. When Celery runs eagerly (tests, dev without a worker) the
+        result is available immediately and returned directly; otherwise the
+        caller gets 202 and observes the outcome via strategy state / alerts.
+        """
         strategy = self.get_object()
         from .tasks import evaluate_strategy  # local import avoids app-loading cycles
-        result = evaluate_strategy(str(strategy.id))
-        return Response(result)
+        async_result = evaluate_strategy.delay(str(strategy.id))
+        if async_result.ready() and async_result.successful():
+            return Response(async_result.result)
+        return Response({"status": "queued", "task_id": async_result.id},
+                        status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["get", "post"],
             throttle_classes=[ScopedRateThrottle], throttle_scope="replay")

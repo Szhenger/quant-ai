@@ -19,6 +19,7 @@ comparison's right side is a constant (``value == previous == threshold``).
 from __future__ import annotations
 
 import json
+import math
 from typing import List, Optional, Tuple
 
 from .indicators import (
@@ -59,9 +60,14 @@ def _validate_operand(operand, *, side: str, require_indicator: bool) -> dict:
         if require_indicator:
             raise ConditionError(f"{side} operand must be an indicator, not a constant.")
         try:
-            return {"value": float(operand["value"])}
+            value = float(operand["value"])
         except (TypeError, ValueError):
             raise ConditionError(f"{side} operand constant must be a number.")
+        # NaN never compares true (a rule that silently never fires) and
+        # non-finite values render as invalid strict JSON in payloads.
+        if not math.isfinite(value):
+            raise ConditionError(f"{side} operand constant must be a finite number.")
+        return {"value": value}
     indicator = operand["indicator"]
     if indicator not in INDICATOR_SPECS:
         raise ConditionError(f"Unknown indicator: {indicator!r}.")

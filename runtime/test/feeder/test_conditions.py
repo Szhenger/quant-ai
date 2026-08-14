@@ -91,6 +91,14 @@ def test_validate_rejects_unknown_operator():
         validate_condition_tree(_leaf("RSI", "=="))
 
 
+def test_reject_non_finite_constant():
+    # NaN never compares true (a rule that silently never fires) and non-finite
+    # values render as invalid strict JSON in stored payloads.
+    for bad in (float("nan"), float("inf"), "-Infinity"):
+        with pytest.raises(ConditionError):
+            validate_condition_tree(_leaf("RSI", "<", {"value": bad}))
+
+
 def test_validate_rejects_constant_left():
     with pytest.raises(ConditionError):
         validate_condition_tree(

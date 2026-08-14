@@ -51,8 +51,10 @@ class Strategy(models.Model):
     notify_in_app = models.BooleanField(default=True)
     notify_email = models.BooleanField(default=False)
     webhook_url = models.URLField(max_length=1000, blank=True, default="")
-    # Per-strategy secret for HMAC-signing webhook payloads
-    # (X-QuantAI-Signature header), so receivers can authenticate deliveries.
+    # Per-strategy secret for HMAC-signing webhook deliveries: the
+    # X-QuantAI-Signature header carries HMAC-SHA256 over
+    # "<X-QuantAI-Timestamp>.<body>", so receivers can both authenticate the
+    # delivery and reject replays by checking the timestamp's freshness.
     webhook_secret = models.CharField(max_length=64, default=_new_webhook_secret,
                                       editable=False)
 
@@ -124,6 +126,9 @@ class Alert(models.Model):
 
     ai_used = models.BooleanField(default=False)
     ai_rationale = models.TextField(blank=True, default="")
+    # The AI verdict's self-reported confidence (0..1). NULL when the AI layer
+    # didn't run — never a fabricated value, same rule as metric_value.
+    ai_confidence = models.FloatField(null=True, blank=True)
     message = models.TextField(blank=True, default="")
 
     # True when the prices (and/or headlines) this alert was computed from were

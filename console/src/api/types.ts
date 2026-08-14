@@ -100,7 +100,9 @@ export interface Strategy {
 }
 
 export interface EvaluateResult {
-  status: "alerted" | "quant_not_met" | "cooldown" | "ai_suppressed" | "error" | string;
+  // "queued": the evaluation was dispatched to the worker fleet (202) — the
+  // outcome lands on the strategy row / alerts, not in this response.
+  status: "alerted" | "quant_not_met" | "cooldown" | "ai_suppressed" | "error" | "queued" | string;
   [key: string]: unknown;
 }
 
@@ -135,6 +137,8 @@ export interface Alert {
   metric_value: number | null;
   ai_used: boolean;
   ai_rationale: string | null;
+  // AI verdict's self-reported confidence (0..1); null when AI didn't run.
+  ai_confidence: number | null;
   message: string;
   // The evaluated condition tree that fired this alert (reproducible audit row).
   condition_detail: unknown;

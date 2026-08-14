@@ -196,6 +196,7 @@ def _run_evaluation(strategy_id: str):
                 metric_value=value,
                 ai_used=verdict.ai_used,
                 ai_rationale=verdict.rationale,
+                ai_confidence=verdict.confidence if verdict.ai_used else None,
                 message=message,
                 condition_detail=detail,
                 data_synthetic=data_synthetic,

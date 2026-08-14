@@ -55,6 +55,19 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
+        // Revoke the session server-side: blacklist the refresh token so it
+        // stops working everywhere, not just in this browser's storage.
+        // Bare axios, not the api client: its interceptors read the auth store
+        // asynchronously, and we clear that store synchronously below — the
+        // captured token keeps this request valid regardless of ordering.
+        // Best-effort fire-and-forget — local logout must never be blocked
+        // by a network failure.
+        const { refresh } = get();
+        if (refresh) {
+          void axios
+            .post(`${API_BASE}/auth/logout/`, { refresh })
+            .catch(() => undefined);
+        }
         set({
           access: null,
           refresh: null,

@@ -82,6 +82,15 @@ export function useAddWatch() {
   });
 }
 
+export function useRemoveWatch() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/watchlist/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.watchlist(ws) }),
+  });
+}
+
 // --- Strategies --------------------------------------------------------------
 
 export function useStrategies() {
@@ -204,15 +213,25 @@ export function useMarkAllRead() {
 export function useEvaluateStrategy() {
   const ws = useWorkspaceId();
   const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
+    void qc.invalidateQueries({ queryKey: keys.alerts(ws) });
+    void qc.invalidateQueries({ queryKey: keys.unread(ws) });
+  };
   return useMutation({
     mutationFn: (id: string) =>
       api.post<{ status: string }>(`/strategies/${id}/evaluate/`).then((r) => r.data),
-    onSettled: () => {
-      // An evaluation may have fired an alert and moved strategy timestamps.
-      void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
-      void qc.invalidateQueries({ queryKey: keys.alerts(ws) });
-      void qc.invalidateQueries({ queryKey: keys.unread(ws) });
+    onSuccess: (data) => {
+      // "queued": the evaluation runs on the worker fleet; refetch again after
+      // it has plausibly finished so the row's status/last_* fields catch up
+      // without waiting for the 30s strategies poll. (Any fired alert also
+      // arrives over the WebSocket regardless.)
+      if (data.status === "queued") {
+        setTimeout(invalidate, 4_000);
+      }
     },
+    // An evaluation may have fired an alert and moved strategy timestamps.
+    onSettled: invalidate,
   });
 }
 
@@ -221,6 +240,28 @@ export function useDeleteStrategy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/strategies/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+  });
+}
+
+/** PATCH a strategy (edit fields, pause/resume via status). */
+export function useUpdateStrategy() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Strategy> }) =>
+      api.patch<Strategy>(`/strategies/${id}/`, patch).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+  });
+}
+
+/** Regenerate a strategy's webhook HMAC secret (receiver must be updated too). */
+export function useRotateWebhookSecret() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Strategy>(`/strategies/${id}/rotate-secret/`).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
   });
 }

@@ -1,0 +1,25 @@
+{
+  "id": "55abbcae-9b24-4a15-abd7-0d25d92cc6d1",
+  "strategy": "0f4d3c2b-1a09-4e87-b654-3210fedcba98",
+  "strategy_name": "AAPL breathing",
+  "ticker": "AAPL",
+  "indicator": "PRICE",
+  "operator": ">",
+  "threshold": 0.0,
+  "metric_value": 657.69,
+  "ai_used": false,
+  "ai_rationale": "Quantitative condition met (AI contextualisation disabled).",
+  "ai_confidence": null,
+  "message": "[SYNTHETIC DATA] AAPL: Price greater than 0 (value 657.6900). Quantitative condition met (AI contextualisation disabled).",
+  "condition_detail": {
+    "type": "compare",
+    "operator": ">",
+    "left": { "indicator": "PRICE", "params": {}, "value": 657.69, "previous": 655.01 },
+    "right": { "value": 0.0, "previous": 0.0 },
+    "result": true
+  },
+  "data_synthetic": true,
+  "delivery": { "in_app": { "ok": true, "attempts": 1 } },
+  "is_read": false,
+  "created_at": "2026-08-14T12:00:05Z"
+}

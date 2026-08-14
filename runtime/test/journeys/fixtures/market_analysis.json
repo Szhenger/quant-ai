@@ -1,0 +1,19 @@
+{
+  "ticker": "AAPL",
+  "provider": "synthetic",
+  "synthetic": true,
+  "dates": ["2026-08-12", "2026-08-13", "2026-08-14"],
+  "closes": [654.1, 655.01, 657.69],
+  "latest_price": 657.69,
+  "indicators": {
+    "Z_SCORE": { "label": "Z-Score", "unit": "σ", "value": 1.02, "params": { "window": 20 } },
+    "RSI": { "label": "RSI", "unit": "", "value": 57.3, "params": { "period": 14 } },
+    "SMA_CROSS": { "label": "SMA Spread (fast-slow)", "unit": "$", "value": 3.4, "params": { "fast": 20, "slow": 50 } },
+    "MACD_HIST": { "label": "MACD Histogram", "unit": "", "value": 0.6, "params": { "fast": 12, "slow": 26, "signal": 9 } },
+    "PCT_CHANGE": { "label": "% Change", "unit": "%", "value": 0.41, "params": { "window": 1 } },
+    "VOLATILITY": { "label": "Volatility (annualized)", "unit": "%", "value": 22.5, "params": { "window": 20 } },
+    "SMA": { "label": "SMA", "unit": "$", "value": 650.2, "params": { "window": 20 } },
+    "EMA": { "label": "EMA", "unit": "$", "value": 652.7, "params": { "window": 20 } },
+    "PRICE": { "label": "Price", "unit": "$", "value": 657.69, "params": {} }
+  }
+}

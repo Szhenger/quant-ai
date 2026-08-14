@@ -21,6 +21,7 @@ function alert(id: string, is_read = false): Alert {
     metric_value: -2.5,
     ai_used: false,
     ai_rationale: null,
+    ai_confidence: null,
     message: `alert ${id}`,
     condition_detail: null,
     data_synthetic: false,

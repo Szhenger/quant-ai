@@ -67,7 +67,7 @@ tests (see below).
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # optional — sensible defaults otherwise
+cp .env.example .env            # loaded automatically; sets DJANGO_DEBUG=True for local dev
 python manage.py migrate
 
 # The ASGI server: serves both HTTP and WebSockets on :8000
@@ -106,6 +106,24 @@ Chapter 1–6 math, `test_evaluation.py` and `test_compiler.py` exercise the str
 `test_api.py` walks the Chapter 9 contract end to end, and `test_webstack.py` covers the
 web tier's performance/concurrency behavior (single-flight caching, ETags, cursor pages,
 the WebSocket heartbeat).
+
+## The UX-invariant framework (`test/journeys/`)
+
+On top of the unit and contract layers sits an *experience* layer that keeps future PRs
+from silently losing behavior users rely on:
+
+- **`test_user_journeys.py`** — whole sessions in user order (first session, strategy
+  lifecycle, hostile client), asserting the promises mid-flow: exactly-once alerting,
+  unread-badge arithmetic, synthetic-data honesty, tenancy walls, real logout. A PR that
+  intentionally changes one of these promises must change the assertion in the same commit.
+- **`test_contract_fixtures.py` + `fixtures/*.json`** — golden wire-shape samples shared
+  with the frontend. This side proves the live API matches them key-for-key;
+  `console/src/api/contracts.test.ts` proves `types.ts` matches the *same files* at compile
+  time. Changing a serializer therefore fails here → you update the fixture → the frontend
+  stops compiling until `types.ts` and its key map are updated too. The contract cannot
+  drift on one side only.
+- **`uxspec.py`** — `ConsoleClient` (drives the API exactly as `console/src/api/client.ts`
+  does) and the shared invariant assertions.
 
 ## Key environment variables
 

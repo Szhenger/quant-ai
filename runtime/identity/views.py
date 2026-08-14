@@ -19,6 +19,36 @@ class RegisterView(generics.CreateAPIView):
     permission_classes = [permissions.AllowAny]
 
 
+class LogoutView(APIView):
+    """Blacklist the submitted refresh token, ending the session server-side.
+
+    Without this, "log out" only clears the client's storage while the refresh
+    token stays valid for its full lifetime. Idempotent: an already-blacklisted,
+    expired or malformed token still returns success — the caller's goal (that
+    token no longer works) is met either way.
+
+    AllowAny is deliberate: possession of a validly-signed refresh token IS the
+    credential, and the only effect is revoking that same token. Requiring an
+    access token would also break the common case — logging out with an access
+    token that already expired.
+    """
+
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        from rest_framework_simplejwt.exceptions import TokenError
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        raw = request.data.get("refresh")
+        if not raw:
+            raise ValidationError({"refresh": "This field is required."})
+        try:
+            RefreshToken(raw).blacklist()
+        except TokenError:
+            pass
+        return Response(status=205)
+
+
 class HealthView(APIView):
     """Liveness/readiness probe: verifies the database and the shared cache.
 

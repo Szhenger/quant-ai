@@ -19,6 +19,10 @@ services:
     environment:
       DJANGO_SETTINGS_MODULE: config.test_settings
       DB_HOST: test-db
+      # Settings fail fast when the published dev SECRET_KEY is used outside
+      # DEBUG; give the test container its own throwaway key.
+      DJANGO_SECRET_KEY: test-only-secret-key
+      DJANGO_DEBUG: "False"
     command: sh -c "pytest -q"
     depends_on:
       test-db:

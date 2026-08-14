@@ -49,6 +49,18 @@ OPERATORS = {
     "cross_below": "crosses below",
 }
 
+# Upper bound for every window/period parameter. Without a ceiling, a strategy
+# with e.g. {"window": 10**9} passes validation, the lookback sizing asks for
+# billions of bars, and the synthetic fallback provider will happily generate
+# them — an authenticated OOM/CPU DoS against the worker or the web tier
+# (analysis/replay compute in-request). 500 trading days ≈ 2 years, comfortably
+# above any sane indicator window.
+PARAM_MAXIMUM = 500
+
+# Hard ceiling on how much history a single evaluation may request, regardless
+# of parameters — defence in depth behind PARAM_MAXIMUM.
+MAX_LOOKBACK_DAYS = 2500
+
 # Minimum value each per-indicator parameter may take (defends against degenerate
 # configs like window=1, which yields NaN, or fast >= slow on crossovers).
 _PARAM_MINIMUMS = {
@@ -81,6 +93,8 @@ def validate_params(indicator: str, params: Optional[dict]) -> dict:
         floor = minimums.get(name, 1)
         if value < floor:
             raise ValueError(f"Parameter '{name}' must be at least {floor}.")
+        if value > PARAM_MAXIMUM:
+            raise ValueError(f"Parameter '{name}' must be at most {PARAM_MAXIMUM}.")
         merged[name] = value
     if indicator in ("SMA_CROSS", "MACD_HIST") and merged["fast"] >= merged["slow"]:
         raise ValueError("The fast window must be smaller than the slow window.")
@@ -91,7 +105,7 @@ def lookback_days(indicator: str, params: Optional[dict] = None) -> int:
     """How many trading days of history an indicator needs (with headroom)."""
     params = {**INDICATOR_SPECS.get(indicator, {}).get("defaults", {}), **(params or {})}
     longest = max([1] + [v for v in params.values() if isinstance(v, (int, float))])
-    return int(max(120, longest * 4))
+    return int(min(MAX_LOOKBACK_DAYS, max(120, longest * 4)))
 
 
 # --------------------------------------------------------------------------- #

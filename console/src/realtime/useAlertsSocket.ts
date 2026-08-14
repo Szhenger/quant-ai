@@ -9,6 +9,7 @@ import { useEffect } from "react";
 import { create } from "zustand";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../store/auth";
+import { WS_BASE } from "../api/client";
 import { keys } from "../api/hooks";
 import { ReconnectingAlertSocket, SocketStatus } from "./socket";
 import { prependAlert, AlertPages } from "./merge";
@@ -44,8 +45,10 @@ export function useAlertsSocket(): void {
       buildUrl: () => {
         const { access } = useAuthStore.getState();
         if (!access) return null;
-        const base = window.location.origin.replace(/^http/, "ws");
-        return `${base}/ws/alerts/${workspaceId}/?token=${encodeURIComponent(access)}`;
+        // WS_BASE, not window.location.origin: in split-origin deployments the
+        // frontend is a static site and the socket must dial the API service
+        // (VITE_WS_BASE); same-origin remains the dev default.
+        return `${WS_BASE}/ws/alerts/${workspaceId}/?token=${encodeURIComponent(access)}`;
       },
       onAlert: (raw) => {
         const alert = raw as Alert;

@@ -3,7 +3,7 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from identity.views import HealthView, RegisterView
+from identity.views import HealthView, LogoutView, RegisterView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -15,6 +15,9 @@ urlpatterns = [
     path("api/v1/auth/register/", RegisterView.as_view(), name="register"),
     path("api/v1/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/v1/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+    # Blacklists the submitted refresh token so "log out" revokes the session
+    # server-side instead of only clearing the client's storage.
+    path("api/v1/auth/logout/", LogoutView.as_view(), name="logout"),
 
     # Workspaces + watchlist
     path("api/v1/", include("identity.urls")),

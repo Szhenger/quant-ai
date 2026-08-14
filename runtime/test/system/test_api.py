@@ -18,6 +18,17 @@ def test_register_creates_default_workspace(client=None):
     assert Workspace.objects.filter(owner=user).count() == 1
 
 
+def test_register_rejects_weak_password():
+    # AUTH_PASSWORD_VALIDATORS must be active: without them validate_password
+    # is a silent no-op and open registration accepts one-character passwords.
+    api = APIClient()
+    resp = api.post("/api/v1/auth/register/", {
+        "username": "weakling", "email": "w@example.com", "password": "a",
+    }, format="json")
+    assert resp.status_code == 400
+    assert "password" in resp.data
+
+
 def test_create_strategy(auth_client, workspace):
     resp = auth_client.post("/api/v1/strategies/", {
         "name": "AAPL oversold",
@@ -31,6 +42,43 @@ def test_create_strategy(auth_client, workspace):
     assert resp.status_code == 201, resp.content
     assert resp.data["ticker"] == "AAPL"  # normalised
     assert Strategy.objects.filter(workspace=workspace).count() == 1
+
+
+def test_create_strategy_rejects_oversized_params(auth_client):
+    resp = auth_client.post("/api/v1/strategies/", {
+        "name": "dos", "ticker": "AAPL", "indicator": "Z_SCORE",
+        "params": {"window": 10 ** 9}, "operator": "<", "threshold": -2.0,
+    }, format="json")
+    assert resp.status_code == 400
+    assert "params" in resp.data
+
+
+def test_create_strategy_rejects_non_finite_threshold(auth_client):
+    for bad in ("NaN", "Infinity"):
+        resp = auth_client.post("/api/v1/strategies/", {
+            "name": "nan", "ticker": "AAPL", "indicator": "PRICE",
+            "operator": ">", "threshold": bad,
+        }, format="json")
+        assert resp.status_code == 400, bad
+        assert "threshold" in resp.data
+
+
+def test_rotate_webhook_secret(auth_client, workspace):
+    s = Strategy.objects.create(
+        workspace=workspace, name="hooked", ticker="AAPL",
+        indicator="PRICE", operator=">", threshold=0,
+        webhook_url="https://93.184.216.34/hook",
+    )
+    old = s.webhook_secret
+    resp = auth_client.post(f"/api/v1/strategies/{s.id}/rotate-secret/")
+    assert resp.status_code == 200, resp.content
+    assert len(resp.data["webhook_secret"]) == 32
+    assert resp.data["webhook_secret"] != old
+    s.refresh_from_db()
+    assert s.webhook_secret == resp.data["webhook_secret"]
+    # Rotation must not disturb anything else on the strategy.
+    assert resp.data["webhook_url"] == "https://93.184.216.34/hook"
+    assert resp.data["status"] == "active"
 
 
 def test_strategy_requires_workspace_header(user):

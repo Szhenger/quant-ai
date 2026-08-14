@@ -91,6 +91,21 @@ def test_validate_params_rejects_non_integer():
         validate_params("RSI", {"period": "abc"})
 
 
+def test_validate_params_rejects_oversized_window():
+    # No ceiling would let {"window": 10**9} through — the lookback sizing then
+    # asks for billions of bars (worker OOM / CPU DoS on the compute path).
+    with pytest.raises(ValueError):
+        validate_params("Z_SCORE", {"window": 10 ** 9})
+    validate_params("Z_SCORE", {"window": 500})  # the cap itself is allowed
+
+
+def test_lookback_days_is_clamped():
+    from feeder.indicators import MAX_LOOKBACK_DAYS, lookback_days
+
+    # Even a hostile param that dodged validation cannot inflate the fetch.
+    assert lookback_days("Z_SCORE", {"window": 10 ** 9}) == MAX_LOOKBACK_DAYS
+
+
 def test_equality_operator_not_offered():
     # "==" is a footgun on continuous indicators; it must not be selectable.
     assert "==" not in OPERATORS
