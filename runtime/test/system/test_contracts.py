@@ -29,8 +29,9 @@ STRATEGY_FIELDS = {
 # Mirrors `Alert` in console/src/api/types.ts.
 ALERT_FIELDS = {
     "id", "strategy", "strategy_name", "ticker", "indicator", "operator",
-    "threshold", "metric_value", "ai_used", "ai_rationale", "message",
-    "condition_detail", "data_synthetic", "delivery", "is_read", "created_at",
+    "threshold", "metric_value", "ai_used", "ai_rationale", "ai_confidence",
+    "message", "condition_detail", "data_synthetic", "delivery", "is_read",
+    "created_at",
 }
 
 # Mirrors `ReplayResult` in console/src/api/types.ts.
@@ -50,6 +51,8 @@ ANALYSIS_FIELDS = {
 EVALUATE_STATUSES = {
     "alerted", "quant_not_met", "cooldown", "ai_suppressed", "error",
     "locked", "not_found",
+    # Non-eager deployments: the evaluation was dispatched to the worker fleet.
+    "queued",
 }
 
 
@@ -140,6 +143,25 @@ def test_token_refresh_rotates_and_blacklists(user):
     reused = api.post("/api/v1/auth/token/refresh/", {"refresh": old_refresh},
                       format="json")
     assert reused.status_code == 401  # blacklisted after rotation
+
+
+def test_logout_blacklists_refresh_token(user):
+    """POST /auth/logout/ revokes the refresh token server-side — after it,
+    the token the client held must stop refreshing (types.ts AuthTokens).
+    No Authorization header: possession of the refresh token is the credential
+    (the client may be logging out with an already-expired access token)."""
+    resp = APIClient().post("/api/v1/auth/token/", {
+        "username": "trader", "password": "pw12345!",
+    }, format="json")
+    refresh = resp.data["refresh"]
+
+    out = APIClient().post("/api/v1/auth/logout/", {"refresh": refresh},
+                           format="json")
+    assert out.status_code == 205
+
+    reused = APIClient().post("/api/v1/auth/token/refresh/", {"refresh": refresh},
+                              format="json")
+    assert reused.status_code == 401
 
 
 def test_workspace_scoping_error_codes(auth_client):

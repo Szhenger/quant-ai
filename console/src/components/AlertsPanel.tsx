@@ -73,6 +73,9 @@ export default function AlertsPanel() {
                   <div className="alert-rationale">
                     <span className="muted">AI rationale: </span>
                     {a.ai_rationale}
+                    {a.ai_confidence != null && (
+                      <span className="muted"> ({Math.round(a.ai_confidence * 100)}% confidence)</span>
+                    )}
                   </div>
                 )}
                 <div className="alert-actions">

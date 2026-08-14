@@ -12,14 +12,59 @@ from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+def _load_dotenv(path: Path) -> None:
+    """Load KEY=VALUE lines from ``path`` into the environment (real environment
+    variables win). The README documents `cp .env.example .env` as the local
+    setup step, so the file must actually be read — there is no external
+    dotenv dependency to forget."""
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip().strip("'\""))
+
+
+_load_dotenv(BASE_DIR / ".env")
+
+
 def env_bool(name: str, default: bool = False) -> bool:
     return os.environ.get(name, str(default)).lower() in ("1", "true", "yes", "on")
 
 
 # --- Core security -----------------------------------------------------------
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-key-change-in-production")
-DEBUG = env_bool("DJANGO_DEBUG", True)
+# Safe-by-default: an unset DJANGO_DEBUG means production behaviour. Local dev
+# sets DJANGO_DEBUG=True explicitly (.env.example, docker-compose.yml do).
+_DEV_SECRET_KEY = "dev-insecure-key-change-in-production"
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", _DEV_SECRET_KEY)
+DEBUG = env_bool("DJANGO_DEBUG", False)
+# The test settings never serve traffic — `pytest` / `make test` must keep
+# working with no env exported, so the guard exempts them.
+_IS_TEST_RUN = os.environ.get("DJANGO_SETTINGS_MODULE", "").endswith("test_settings")
+if not DEBUG and not _IS_TEST_RUN and SECRET_KEY == _DEV_SECRET_KEY:
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "Refusing to start with the published dev SECRET_KEY outside DEBUG. "
+        "Set DJANGO_SECRET_KEY, or set DJANGO_DEBUG=True for local development."
+    )
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0").split(",")
+
+if not DEBUG:
+    # Deployments terminate TLS at a proxy/load balancer (Render, etc.); trust
+    # its forwarded-proto header so request.is_secure() and secure cookies work.
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+AUTH_PASSWORD_VALIDATORS = [
+    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
+    {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
+    {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
+]
 
 # --- Applications ------------------------------------------------------------
 INSTALLED_APPS = [
@@ -220,7 +265,7 @@ MARKETDATA_FETCH_WAIT = float(os.environ.get("MARKETDATA_FETCH_WAIT", "10"))
 
 # --- Anthropic Claude (AI contextualisation layer) --------------------------
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-4-8")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-opus-5")
 ANTHROPIC_TIMEOUT_SECONDS = float(os.environ.get("ANTHROPIC_TIMEOUT_SECONDS", "30"))
 
 # --- Email (SMTP alert channel) ---------------------------------------------

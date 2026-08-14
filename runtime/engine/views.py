@@ -94,11 +94,23 @@ class StrategyViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"],
             throttle_classes=[ScopedRateThrottle], throttle_scope="evaluate")
     def evaluate(self, request, pk=None):
-        """Manually evaluate a strategy now (useful for testing)."""
+        """Manually evaluate a strategy now (useful for testing).
+
+        The evaluation (price fetch + optional AI call, up to ~a minute of
+        network I/O) is dispatched to the worker fleet, NOT run in-request:
+        under ASGI every sync view in a process shares one thread, so running
+        it here would stall every other request in the process for the
+        duration. When Celery runs eagerly (tests, dev without a worker) the
+        result is available immediately and returned directly; otherwise the
+        caller gets 202 and observes the outcome via strategy state / alerts.
+        """
         strategy = self.get_object()
         from .tasks import evaluate_strategy  # local import avoids app-loading cycles
-        result = evaluate_strategy(str(strategy.id))
-        return Response(result)
+        async_result = evaluate_strategy.delay(str(strategy.id))
+        if async_result.ready() and async_result.successful():
+            return Response(async_result.result)
+        return Response({"status": "queued", "task_id": async_result.id},
+                        status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["get", "post"],
             throttle_classes=[ScopedRateThrottle], throttle_scope="replay")

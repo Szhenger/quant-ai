@@ -18,6 +18,17 @@ def test_register_creates_default_workspace(client=None):
     assert Workspace.objects.filter(owner=user).count() == 1
 
 
+def test_register_rejects_weak_password():
+    # AUTH_PASSWORD_VALIDATORS must be active: without them validate_password
+    # is a silent no-op and open registration accepts one-character passwords.
+    api = APIClient()
+    resp = api.post("/api/v1/auth/register/", {
+        "username": "weakling", "email": "w@example.com", "password": "a",
+    }, format="json")
+    assert resp.status_code == 400
+    assert "password" in resp.data
+
+
 def test_create_strategy(auth_client, workspace):
     resp = auth_client.post("/api/v1/strategies/", {
         "name": "AAPL oversold",
@@ -31,6 +42,25 @@ def test_create_strategy(auth_client, workspace):
     assert resp.status_code == 201, resp.content
     assert resp.data["ticker"] == "AAPL"  # normalised
     assert Strategy.objects.filter(workspace=workspace).count() == 1
+
+
+def test_create_strategy_rejects_oversized_params(auth_client):
+    resp = auth_client.post("/api/v1/strategies/", {
+        "name": "dos", "ticker": "AAPL", "indicator": "Z_SCORE",
+        "params": {"window": 10 ** 9}, "operator": "<", "threshold": -2.0,
+    }, format="json")
+    assert resp.status_code == 400
+    assert "params" in resp.data
+
+
+def test_create_strategy_rejects_non_finite_threshold(auth_client):
+    for bad in ("NaN", "Infinity"):
+        resp = auth_client.post("/api/v1/strategies/", {
+            "name": "nan", "ticker": "AAPL", "indicator": "PRICE",
+            "operator": ">", "threshold": bad,
+        }, format="json")
+        assert resp.status_code == 400, bad
+        assert "threshold" in resp.data
 
 
 def test_strategy_requires_workspace_header(user):

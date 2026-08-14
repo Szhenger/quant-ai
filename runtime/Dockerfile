@@ -15,7 +15,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Static assets (admin, DRF pages) baked into the image; whitenoise serves them.
-RUN python manage.py collectstatic --noinput
+# The throwaway SECRET_KEY exists only to satisfy settings at build time —
+# collectstatic never uses it, and the runtime env provides the real one.
+RUN DJANGO_SECRET_KEY=build-time-collectstatic-only python manage.py collectstatic --noinput
 
 # Run as an unprivileged user.
 RUN useradd --create-home appuser && chown -R appuser /app

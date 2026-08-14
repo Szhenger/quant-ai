@@ -47,11 +47,26 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A config worker --loglevel=info"
     envVars:
+      # The worker sends the email channel: with DEBUG unset it would fall back
+      # to the console email backend and silently discard every message.
+      - key: DJANGO_DEBUG
+        value: "False"
       - key: DJANGO_SECRET_KEY
         sync: false
       - key: MARKETDATA_PROVIDER
         value: auto
       - key: ANTHROPIC_API_KEY
+        sync: false
+      # SMTP for the email alert channel (set in the dashboard).
+      - key: EMAIL_HOST
+        sync: false
+      - key: EMAIL_PORT
+        value: "587"
+      - key: EMAIL_HOST_USER
+        sync: false
+      - key: EMAIL_HOST_PASSWORD
+        sync: false
+      - key: DEFAULT_FROM_EMAIL
         sync: false
       - key: REDIS_URL
         fromService:
@@ -77,6 +92,8 @@ services:
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A config beat --loglevel=info"
     envVars:
+      - key: DJANGO_DEBUG
+        value: "False"
       - key: DJANGO_SECRET_KEY
         sync: false
       - key: REDIS_URL

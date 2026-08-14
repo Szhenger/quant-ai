@@ -67,7 +67,7 @@ tests (see below).
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # optional — sensible defaults otherwise
+cp .env.example .env            # loaded automatically; sets DJANGO_DEBUG=True for local dev
 python manage.py migrate
 
 # The ASGI server: serves both HTTP and WebSockets on :8000

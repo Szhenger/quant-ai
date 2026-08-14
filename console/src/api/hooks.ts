@@ -204,15 +204,25 @@ export function useMarkAllRead() {
 export function useEvaluateStrategy() {
   const ws = useWorkspaceId();
   const qc = useQueryClient();
+  const invalidate = () => {
+    void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
+    void qc.invalidateQueries({ queryKey: keys.alerts(ws) });
+    void qc.invalidateQueries({ queryKey: keys.unread(ws) });
+  };
   return useMutation({
     mutationFn: (id: string) =>
       api.post<{ status: string }>(`/strategies/${id}/evaluate/`).then((r) => r.data),
-    onSettled: () => {
-      // An evaluation may have fired an alert and moved strategy timestamps.
-      void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
-      void qc.invalidateQueries({ queryKey: keys.alerts(ws) });
-      void qc.invalidateQueries({ queryKey: keys.unread(ws) });
+    onSuccess: (data) => {
+      // "queued": the evaluation runs on the worker fleet; refetch again after
+      // it has plausibly finished so the row's status/last_* fields catch up
+      // without waiting for the 30s strategies poll. (Any fired alert also
+      // arrives over the WebSocket regardless.)
+      if (data.status === "queued") {
+        setTimeout(invalidate, 4_000);
+      }
     },
+    // An evaluation may have fired an alert and moved strategy timestamps.
+    onSettled: invalidate,
   });
 }
 
@@ -224,3 +234,4 @@ export function useDeleteStrategy() {
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
   });
 }
+

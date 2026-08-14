@@ -1,3 +1,5 @@
+import math
+
 from rest_framework import serializers
 
 from identity.validators import ensure_public_webhook_url, normalize_ticker
@@ -53,6 +55,13 @@ class StrategySerializer(serializers.ModelSerializer):
                 ensure_public_webhook_url(value)
             except ValueError as exc:
                 raise serializers.ValidationError(str(exc))
+        return value
+
+    def validate_threshold(self, value):
+        # DRF's FloatField accepts "NaN"/"Infinity": NaN never compares true (a
+        # rule that silently never fires) and both break strict-JSON payloads.
+        if value is not None and not math.isfinite(value):
+            raise serializers.ValidationError("Threshold must be a finite number.")
         return value
 
     def validate_indicator(self, value):
@@ -116,7 +125,8 @@ class AlertSerializer(serializers.ModelSerializer):
         model = Alert
         fields = (
             "id", "strategy", "strategy_name", "ticker", "indicator", "operator",
-            "threshold", "metric_value", "ai_used", "ai_rationale", "message",
-            "condition_detail", "data_synthetic", "delivery", "is_read", "created_at",
+            "threshold", "metric_value", "ai_used", "ai_rationale", "ai_confidence",
+            "message", "condition_detail", "data_synthetic", "delivery", "is_read",
+            "created_at",
         )
         read_only_fields = fields

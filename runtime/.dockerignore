@@ -1,0 +1,8 @@
+# Never bake local secrets or state into the image; the runtime environment
+# provides configuration (compose env / Render env vars).
+.env
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.marketdata_cache
