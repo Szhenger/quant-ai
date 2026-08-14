@@ -1,0 +1,13 @@
+{
+  "strategy_id": "0f4d3c2b-1a09-4e87-b654-3210fedcba98",
+  "ticker": "AAPL",
+  "condition": "Price greater than 0",
+  "provider": "synthetic",
+  "synthetic": true,
+  "cooldown_bars": 0,
+  "bars": 30,
+  "fire_count": 30,
+  "fires": [{ "index": 0, "date": "2026-07-16", "metric": 641.55 }],
+  "dates": ["2026-07-16", "2026-07-17"],
+  "closes": [641.55, 643.02]
+}
