@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { extractError } from "../api/errors";
 import {
   useAlertsInfinite,
@@ -6,6 +7,7 @@ import {
   useUnreadCount,
 } from "../api/hooks";
 import { useRealtimeStore } from "../realtime/useAlertsSocket";
+import AlertDetail from "./AlertDetail";
 
 function formatDate(iso: string): string {
   const d = new Date(iso);
@@ -21,7 +23,14 @@ export default function AlertsPanel() {
   const markAll = useMarkAllRead();
   const live = useRealtimeStore((s) => s.status);
 
-  const rows = alerts.data?.pages.flatMap((p) => p.results) ?? [];
+  // Client-side unread filter over the loaded pages: the socket and the
+  // optimistic mark-read transforms all write into this same cache, so
+  // filtering in memory stays consistent without a second cache namespace.
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [openDetailId, setOpenDetailId] = useState<string | null>(null);
+
+  const allRows = alerts.data?.pages.flatMap((p) => p.results) ?? [];
+  const rows = unreadOnly ? allRows.filter((a) => !a.is_read) : allRows;
   const unreadCount = unread.data?.unread ?? 0;
 
   return (
@@ -29,6 +38,13 @@ export default function AlertsPanel() {
       <div className="card-head">
         <h2 className="card-title">Alerts</h2>
         <div className="row gap">
+          <button
+            className={`btn small ${unreadOnly ? "primary" : "ghost"}`}
+            onClick={() => setUnreadOnly((u) => !u)}
+            title="Show only unread alerts (from the loaded pages)"
+          >
+            {unreadOnly ? "Showing unread" : "Unread only"}
+          </button>
           {unreadCount > 0 && (
             <button
               className="btn small"
@@ -48,7 +64,11 @@ export default function AlertsPanel() {
       {alerts.isLoading && <p className="muted">Loading alerts…</p>}
 
       {!alerts.isLoading && rows.length === 0 ? (
-        <p className="muted">No alerts yet. They will appear here in real time.</p>
+        <p className="muted">
+          {unreadOnly && allRows.length > 0
+            ? "No unread alerts in the loaded pages."
+            : "No alerts yet. They will appear here in real time."}
+        </p>
       ) : (
         <>
           <ul className="alert-list">
@@ -88,7 +108,15 @@ export default function AlertsPanel() {
                       Mark read
                     </button>
                   )}
+                  <button
+                    className="btn small ghost"
+                    onClick={() => setOpenDetailId(openDetailId === a.id ? null : a.id)}
+                    title="Why did this fire, and where was it delivered?"
+                  >
+                    {openDetailId === a.id ? "Hide detail" : "Detail"}
+                  </button>
                 </div>
+                {openDetailId === a.id && <AlertDetail alert={a} />}
               </li>
             ))}
           </ul>

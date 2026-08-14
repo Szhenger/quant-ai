@@ -82,6 +82,15 @@ export function useAddWatch() {
   });
 }
 
+export function useRemoveWatch() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.delete(`/watchlist/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.watchlist(ws) }),
+  });
+}
+
 // --- Strategies --------------------------------------------------------------
 
 export function useStrategies() {
@@ -235,3 +244,24 @@ export function useDeleteStrategy() {
   });
 }
 
+/** PATCH a strategy (edit fields, pause/resume via status). */
+export function useUpdateStrategy() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Partial<Strategy> }) =>
+      api.patch<Strategy>(`/strategies/${id}/`, patch).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+  });
+}
+
+/** Regenerate a strategy's webhook HMAC secret (receiver must be updated too). */
+export function useRotateWebhookSecret() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      api.post<Strategy>(`/strategies/${id}/rotate-secret/`).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+  });
+}

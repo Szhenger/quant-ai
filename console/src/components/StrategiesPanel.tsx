@@ -1,15 +1,16 @@
 import { Fragment, Suspense, lazy, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import api from "../api/client";
 import { extractError } from "../api/errors";
 import {
   keys,
   useDeleteStrategy,
   useEvaluateStrategy,
   useStrategies,
+  useUpdateStrategy,
   useWorkspaceId,
 } from "../api/hooks";
 import StrategyForm from "./StrategyForm";
+import StrategyEditor from "./StrategyEditor";
 import ReplayPanel from "./ReplayPanel";
 
 // The graph builder pulls in reactflow (~the largest thing in the bundle);
@@ -31,9 +32,15 @@ export default function StrategiesPanel() {
   const evaluate = useEvaluateStrategy();
   const remove = useDeleteStrategy();
 
+  const updateStrategy = useUpdateStrategy();
+
   const [builder, setBuilder] = useState<Builder>("form");
   const [evalState, setEvalState] = useState<Record<string, string>>({});
   const [openReplayId, setOpenReplayId] = useState<string | null>(null);
+  const [openEditId, setOpenEditId] = useState<string | null>(null);
+  // Two-step delete: first click arms this id, second click within the window
+  // actually deletes. Prevents losing a strategy to one stray click.
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const onCreated = () => void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
 
@@ -45,11 +52,23 @@ export default function StrategiesPanel() {
     });
   };
 
-  // Reactivate a strategy the failure circuit breaker paused (re-arms it).
-  const resume = (id: string) => {
-    api.patch(`/strategies/${id}/`, { status: "active" })
-      .then(() => qc.invalidateQueries({ queryKey: keys.strategies(ws) }))
-      .catch((err) => setEvalState((s) => ({ ...s, [id]: extractError(err) })));
+  // Pause/resume — also how a FAILED strategy is reactivated (re-arms the
+  // failure circuit breaker server-side).
+  const setStatus = (id: string, status: "active" | "paused") => {
+    updateStrategy.mutate(
+      { id, patch: { status } },
+      { onError: (err) => setEvalState((s) => ({ ...s, [id]: extractError(err) })) },
+    );
+  };
+
+  const onDeleteClick = (id: string) => {
+    if (confirmDeleteId !== id) {
+      setConfirmDeleteId(id);
+      setTimeout(() => setConfirmDeleteId((c) => (c === id ? null : c)), 4000);
+      return;
+    }
+    setConfirmDeleteId(null);
+    remove.mutate(id);
   };
 
   const rows = strategies.data ?? [];
@@ -92,6 +111,8 @@ export default function StrategiesPanel() {
                 {rows.map((s) => {
                   const busy = busyId === s.id;
                   const open = openReplayId === s.id;
+                  const editing = openEditId === s.id;
+                  const armed = confirmDeleteId === s.id;
                   return (
                     <Fragment key={s.id}>
                       <tr>
@@ -126,22 +147,42 @@ export default function StrategiesPanel() {
                           >
                             {open ? "Hide replay" : "Replay"}
                           </button>
-                          {s.status === "failed" && (
+                          <button
+                            className="btn small"
+                            onClick={() => setOpenEditId(editing ? null : s.id)}
+                          >
+                            {editing ? "Close" : "Edit"}
+                          </button>
+                          {s.status === "active" ? (
                             <button
                               className="btn small"
-                              onClick={() => resume(s.id)}
+                              onClick={() => setStatus(s.id, "paused")}
                               disabled={busy}
-                              title="Reactivate this strategy and re-arm its failure circuit breaker"
+                              title="Stop scheduled evaluations without losing the strategy"
+                            >
+                              Pause
+                            </button>
+                          ) : (
+                            <button
+                              className="btn small"
+                              onClick={() => setStatus(s.id, "active")}
+                              disabled={busy}
+                              title={
+                                s.status === "failed"
+                                  ? "Reactivate and re-arm the failure circuit breaker"
+                                  : "Resume scheduled evaluations"
+                              }
                             >
                               Resume
                             </button>
                           )}
                           <button
                             className="btn small danger"
-                            onClick={() => remove.mutate(s.id)}
+                            onClick={() => onDeleteClick(s.id)}
                             disabled={busy}
+                            title={armed ? "Click again to permanently delete" : undefined}
                           >
-                            Delete
+                            {armed ? "Confirm?" : "Delete"}
                           </button>
                         </td>
                       </tr>
@@ -149,6 +190,16 @@ export default function StrategiesPanel() {
                         <tr className="replay-row">
                           <td colSpan={7}>
                             <ReplayPanel strategyId={s.id} />
+                          </td>
+                        </tr>
+                      )}
+                      {editing && (
+                        <tr className="replay-row">
+                          <td colSpan={7}>
+                            <StrategyEditor
+                              strategy={s}
+                              onClose={() => setOpenEditId(null)}
+                            />
                           </td>
                         </tr>
                       )}

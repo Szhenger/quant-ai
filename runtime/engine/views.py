@@ -18,7 +18,7 @@ from feeder import (
     describe_tree,
     replay_condition,
 )
-from .models import Strategy, Alert
+from .models import Strategy, Alert, _new_webhook_secret
 from .serializers import StrategySerializer, AlertSerializer
 from .compiler import compile_graph, GraphCompilationError
 
@@ -90,6 +90,21 @@ class StrategyViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(workspace=workspace)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="rotate-secret")
+    def rotate_secret(self, request, pk=None):
+        """Regenerate this strategy's webhook HMAC secret.
+
+        For when a secret leaks (or as routine hygiene): deliveries signed
+        after this call verify only against the new secret, so the receiver
+        must be updated in the same operation. Returns the full strategy so
+        the client can show the new secret immediately.
+        """
+        strategy = self.get_object()
+        strategy.webhook_secret = _new_webhook_secret()
+        # auto_now only fires for fields named in update_fields — include it.
+        strategy.save(update_fields=["webhook_secret", "updated_at"])
+        return Response(self.get_serializer(strategy).data)
 
     @action(detail=True, methods=["post"],
             throttle_classes=[ScopedRateThrottle], throttle_scope="evaluate")

@@ -63,6 +63,24 @@ def test_create_strategy_rejects_non_finite_threshold(auth_client):
         assert "threshold" in resp.data
 
 
+def test_rotate_webhook_secret(auth_client, workspace):
+    s = Strategy.objects.create(
+        workspace=workspace, name="hooked", ticker="AAPL",
+        indicator="PRICE", operator=">", threshold=0,
+        webhook_url="https://93.184.216.34/hook",
+    )
+    old = s.webhook_secret
+    resp = auth_client.post(f"/api/v1/strategies/{s.id}/rotate-secret/")
+    assert resp.status_code == 200, resp.content
+    assert len(resp.data["webhook_secret"]) == 32
+    assert resp.data["webhook_secret"] != old
+    s.refresh_from_db()
+    assert s.webhook_secret == resp.data["webhook_secret"]
+    # Rotation must not disturb anything else on the strategy.
+    assert resp.data["webhook_url"] == "https://93.184.216.34/hook"
+    assert resp.data["status"] == "active"
+
+
 def test_strategy_requires_workspace_header(user):
     from rest_framework_simplejwt.tokens import RefreshToken
     api = APIClient()

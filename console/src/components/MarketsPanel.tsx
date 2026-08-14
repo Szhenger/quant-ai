@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
 import { extractError } from "../api/errors";
-import { useAddWatch, useAnalysis, useWatchlist } from "../api/hooks";
+import { useAddWatch, useAnalysis, useRemoveWatch, useWatchlist } from "../api/hooks";
 import LineChart from "./LineChart";
 
 function formatValue(v: number | null): string {
@@ -20,6 +20,7 @@ export default function MarketsPanel() {
   const analysis = useAnalysis(ticker);
   const watchlist = useWatchlist();
   const addWatch = useAddWatch();
+  const removeWatch = useRemoveWatch();
 
   const commit = (symbol: string) => {
     const sym = symbol.trim().toUpperCase();
@@ -152,11 +153,20 @@ export default function MarketsPanel() {
         ) : (
           <ul className="watchlist">
             {(watchlist.data ?? []).map((w) => (
-              <li key={w.id}>
+              <li key={w.id} className="watchlist-row">
                 <button className="link-ticker" onClick={() => commit(w.ticker)}>
                   {w.ticker}
                 </button>
                 {w.note && <span className="muted"> — {w.note}</span>}
+                <button
+                  className="btn small ghost watch-remove"
+                  onClick={() => removeWatch.mutate(w.id)}
+                  disabled={removeWatch.isPending && removeWatch.variables === w.id}
+                  title={`Stop following ${w.ticker}`}
+                  aria-label={`Remove ${w.ticker} from watchlist`}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ul>
