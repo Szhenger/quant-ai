@@ -77,8 +77,24 @@ export default function MarketsPanel() {
           <>
             <div className="analysis-head">
               <div>
-                <div className="analysis-ticker">{data.ticker}</div>
+                <div className="analysis-ticker">
+                  {data.ticker}
+                  {data.synthetic && (
+                    <span
+                      className="badge synthetic"
+                      title="Computed from synthetic fallback data, not real market data"
+                    >
+                      SYNTHETIC
+                    </span>
+                  )}
+                </div>
                 <div className="muted">via {data.provider}</div>
+                {data.synthetic && (
+                  <div className="muted small">
+                    Simulated data — real quotes unavailable for this symbol (check the
+                    ticker).
+                  </div>
+                )}
               </div>
               <div className="analysis-price">
                 <div className="muted">Latest price</div>

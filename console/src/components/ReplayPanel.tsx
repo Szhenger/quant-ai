@@ -7,6 +7,8 @@ const DAY_CHOICES = [90, 180, 365, 730, 1000];
 
 interface ReplayPanelProps {
   strategyId: string;
+  /** The strategy's live cooldown, used to seed an equivalent bar cooldown. */
+  liveCooldownMinutes?: number;
 }
 
 /**
@@ -15,10 +17,17 @@ interface ReplayPanelProps {
  * Window/cooldown changes keep the previous chart on screen while the next
  * result loads (and usually land instantly from the server's compute cache).
  */
-export default function ReplayPanel({ strategyId }: ReplayPanelProps) {
+export default function ReplayPanel({ strategyId, liveCooldownMinutes }: ReplayPanelProps) {
   const [days, setDays] = useState(365);
-  const [cooldownInput, setCooldownInput] = useState("0");
-  const [cooldownBars, setCooldownBars] = useState(0);
+  // Seed from the live cooldown so the fire count approximates what the live
+  // strategy would do — a 0-bar default systematically overstates it. Bars are
+  // daily, live cooldown is minutes: 1 bar ≈ 1440 min.
+  const seededBars =
+    liveCooldownMinutes != null
+      ? Math.max(0, Math.min(365, Math.ceil(liveCooldownMinutes / 1440)))
+      : 0;
+  const [cooldownInput, setCooldownInput] = useState(String(seededBars));
+  const [cooldownBars, setCooldownBars] = useState(seededBars);
 
   const replay = useReplay(strategyId, days, cooldownBars);
 
@@ -65,6 +74,10 @@ export default function ReplayPanel({ strategyId }: ReplayPanelProps) {
           </button>
         </form>
         {replay.isFetching && <span className="muted small">replaying…</span>}
+        <span className="muted small">
+          Replay cooldown counts daily bars; the live cooldown is minutes (1 bar ≈ 1440
+          min).
+        </span>
       </div>
 
       {replay.isError && (

@@ -154,8 +154,13 @@ def _send_webhook(alert) -> dict:
         # replayed deliveries by checking the timestamp's freshness.
         body = json.dumps(_payload(alert), separators=(",", ":")).encode()
         timestamp = str(int(time.time()))
+        # Delivery is at-least-once: a response lost after the receiver
+        # processed the POST is retried, and the reconciliation sweep may
+        # re-send after a crash. X-QuantAI-Alert-Id is the idempotency key —
+        # receivers must dedupe on it.
         headers = {"Content-Type": "application/json",
-                   "X-QuantAI-Timestamp": timestamp}
+                   "X-QuantAI-Timestamp": timestamp,
+                   "X-QuantAI-Alert-Id": str(alert.id)}
         if strategy.webhook_secret:
             signature = hmac.new(strategy.webhook_secret.encode(),
                                  f"{timestamp}.".encode() + body,
@@ -175,3 +180,46 @@ def _send_webhook(alert) -> dict:
 
 
 _SENDERS = {"in_app": _send_in_app, "email": _send_email, "webhook": _send_webhook}
+
+
+def notify_strategy_failed(strategy) -> None:
+    """Tell the owner their strategy's circuit breaker tripped to FAILED.
+
+    A tripped strategy is excluded from every future sweep until the user
+    reactivates it — without a notification, "alerts eventually fire" fails
+    silently and indefinitely. Best-effort on both channels: a notification
+    failure must never take down the evaluation error path that calls this.
+    """
+    text = (
+        f"Your strategy \"{strategy.name}\" ({strategy.ticker}) was paused after "
+        f"{strategy.consecutive_failures} consecutive evaluation failures. "
+        f"Last error: {strategy.last_error or 'unknown'}. "
+        "Reactivate it from the console once the cause is resolved."
+    )
+    try:
+        layer = get_channel_layer()
+        if layer is not None:
+            async_to_sync(layer.group_send)(
+                f"ws_{strategy.workspace_id}",
+                {"type": "strategy.status", "data": {
+                    "strategy_id": str(strategy.id),
+                    "name": strategy.name,
+                    "ticker": strategy.ticker,
+                    "status": "failed",
+                    "message": text,
+                }},
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("WS strategy-failed notification failed: %s", exc)
+    try:
+        to = strategy.workspace.owner.email
+        if to:
+            send_mail(
+                subject=f"[QuantAI] Strategy paused: {strategy.name}",
+                message=text,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[to],
+                fail_silently=False,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Email strategy-failed notification failed: %s", exc)

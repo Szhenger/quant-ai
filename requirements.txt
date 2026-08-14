@@ -1,3 +1,3 @@
-# QuantAI backend dependencies live in backend/requirements.txt.
+# QuantAI backend dependencies live in runtime/requirements.txt.
 # This root file installs them for tooling that expects a top-level requirements.txt.
--r backend/requirements.txt
+-r runtime/requirements.txt

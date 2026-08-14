@@ -84,6 +84,13 @@ export async function fetchAllPages<T>(path: string, cap = 10): Promise<T[]> {
     out.push(...res.data.results);
     url = res.data.next;
   }
+  if (url) {
+    // Rows beyond the cap exist but weren't fetched — make the truncation
+    // observable instead of silently rendering a shorter list.
+    console.warn(
+      `fetchAllPages(${path}): stopped after ${cap} pages (${out.length} rows) with more remaining`,
+    );
+  }
   return out;
 }
 
