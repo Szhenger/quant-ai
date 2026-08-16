@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""qtest — run QuantAI's test suites by behavior area.
+
+    ./test/qtest list                     what exists
+    ./test/qtest run                      the four focus areas
+    ./test/qtest run rest postgres        just these suites
+    ./test/qtest run all                  everything (backend + react)
+    ./test/qtest run rest -- -k tenant    pass args through to pytest/vitest
+    ./test/qtest run --docker backend     force the CI-parity Docker stack
+    ./test/qtest run --report out.json    machine-readable outcomes
+
+Exit codes: 0 all requested suites passed · 1 something failed ·
+2 nothing failed but a needed toolchain was missing (see the summary).
+"""
+import argparse
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from framework import runner  # noqa: E402
+from framework.suites import SUITES, get  # noqa: E402
+
+
+def cmd_list() -> int:
+    print("Focus areas (the default for `qtest run`):")
+    for suite in SUITES:
+        if suite.focus:
+            print(f"  {suite.name:<14} {suite.description}")
+    print("\nSupporting suites:")
+    for suite in SUITES:
+        if not suite.focus:
+            print(f"  {suite.name:<14} {suite.description}")
+    return 0
+
+
+def cmd_run(names, prefer, report, extra) -> int:
+    if not names:
+        selected = [s for s in SUITES if s.focus]
+    elif names == ["all"]:
+        # "backend" already contains every pytest marker; add the vitest side.
+        selected = [get("backend"), get("react")]
+    else:
+        selected = [get(name) for name in names]
+    outcomes = [runner.run_suite(s, extra, prefer) for s in selected]
+    return runner.summarize(outcomes, report)
+
+
+def main(argv) -> int:
+    # Everything after a literal `--` is passed through to pytest/vitest.
+    passthrough = []
+    if "--" in argv:
+        split = argv.index("--")
+        argv, passthrough = argv[:split], argv[split + 1:]
+
+    parser = argparse.ArgumentParser(prog="qtest", description=__doc__,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("list", help="list the suites")
+    run = sub.add_parser("run", help="run suites (default: the focus areas)")
+    run.add_argument("suites", nargs="*", help="suite names, or `all`")
+    run.add_argument("--docker", dest="prefer", action="store_const",
+                     const="docker", default="auto",
+                     help="force the containerized backend run (CI parity)")
+    run.add_argument("--local", dest="prefer", action="store_const", const="local",
+                     help="force the local venv (never fall back to Docker)")
+    run.add_argument("--report", metavar="FILE", help="write outcomes as JSON")
+
+    args = parser.parse_args(argv)
+    if args.command == "list":
+        return cmd_list()
+    try:
+        return cmd_run(args.suites, args.prefer, args.report, passthrough)
+    except KeyError as exc:
+        print(exc.args[0], file=sys.stderr)
+        return 64
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

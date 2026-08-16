@@ -13,8 +13,8 @@ import {
   mergeAlerts,
   prependAlert,
   unreadIds,
-} from "./merge";
-import type { Alert } from "../api/types";
+} from "../../../frontend/src/realtime/merge";
+import type { Alert } from "../../../frontend/src/api/types";
 
 function alert(id: string, createdAt: string, is_read = false): Alert {
   return {

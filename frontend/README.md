@@ -126,14 +126,17 @@ npm run build      # tsc type-check, then a static Vite bundle in dist/
 npm test           # vitest: pure realtime logic + journey sequences + wire-contract pins
 ```
 
+The vitest files live with the rest of the suite at the repo root, in
+[`test/frontend/`](../test/README.md); `npm test` (and `tsc`) reach out to them from here.
+
 Two of those test files are part of the cross-stack **UX-invariant framework**:
 
-- `src/api/contracts.test.ts` pins `types.ts` against the golden wire fixtures in
-  `backend/test/journeys/fixtures/` — the same files the backend's
+- `test/frontend/api/contracts.test.ts` pins `types.ts` against the golden wire fixtures in
+  `test/backend/journeys/fixtures/` — the same files the backend's
   `test_contract_fixtures.py` pins its serializers against. Each type has a
   compile-time-exhaustive key map, so adding/removing a field anywhere forces the
   fixture, the serializer test, `types.ts`, and the key map to move in one PR.
-- `src/realtime/journeys.test.ts` pins the *sequences* the live UI produces over the
+- `test/frontend/realtime/journeys.test.ts` pins the *sequences* the live UI produces over the
   alert cache (socket bursts racing refetches, triage flows, redelivery after
   mark-read) — the interleavings that lose data when the cache logic gets "simplified".
 
