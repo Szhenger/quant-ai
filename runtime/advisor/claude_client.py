@@ -122,9 +122,13 @@ class ClaudeClient:
                 timeout=float(getattr(settings, "ANTHROPIC_TIMEOUT_SECONDS", 30.0)),
                 max_retries=1,
             )
+            # max_tokens must cover adaptive thinking PLUS the JSON verdict on
+            # Claude 5-family models (thinking is on by default and counts
+            # toward the cap): 1024 risks a truncated verdict, which would
+            # silently demote every alert to the no-AI fallback path.
             response = client.messages.create(
                 model=self.model,
-                max_tokens=1024,
+                max_tokens=4096,
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 output_config={"format": {"type": "json_schema", "schema": _VERDICT_SCHEMA}},
@@ -133,10 +137,13 @@ class ClaudeClient:
                 return AlertVerdict(True, "AI declined to assess; fired on quant condition.", 0.5, False)
             text = next((b.text for b in response.content if getattr(b, "type", None) == "text"), "")
             data = json.loads(text)
+            # Structured outputs can't express numeric bounds, so the schema
+            # cannot force confidence into [0, 1] — clamp before persisting.
+            confidence = min(1.0, max(0.0, float(data.get("confidence", 0.5))))
             return AlertVerdict(
                 trigger=bool(data["trigger_alert"]),
                 rationale=str(data.get("rationale", "")),
-                confidence=float(data.get("confidence", 0.5)),
+                confidence=confidence,
                 ai_used=True,
             )
         except Exception as exc:  # noqa: BLE001
