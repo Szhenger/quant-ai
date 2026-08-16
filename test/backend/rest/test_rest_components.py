@@ -46,7 +46,10 @@ def _discover_routes():
     def walk(patterns, prefix):
         for entry in patterns:
             if isinstance(entry, URLResolver):
-                walk(entry.url_patterns, prefix + str(entry.pattern))
+                # Namespaced resolvers (the admin) manage their own auth and
+                # would shadow API route names ("logout" lives in both worlds).
+                if not entry.namespace:
+                    walk(entry.url_patterns, prefix + str(entry.pattern))
             elif isinstance(entry, URLPattern) and entry.name:
                 seen.setdefault(entry.name, prefix + str(entry.pattern))
 
