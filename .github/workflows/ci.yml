@@ -62,5 +62,5 @@ jobs:
 
       # The vitest suite (test/frontend): pure-logic + contract-pin tests.
       - name: Frontend unit tests (vitest)
-        working-directory: console
+        working-directory: frontend
         run: npm test
