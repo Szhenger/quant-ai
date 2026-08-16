@@ -231,5 +231,7 @@ def _run_evaluation(strategy_id: str):
                 fields.append("status")
             strategy.save(update_fields=fields)
         except Exception:  # noqa: BLE001
-            pass
+            # Best-effort bookkeeping: the evaluation error above is already
+            # logged; record (not raise) if even the failure-save failed.
+            logger.exception("Could not record failure state for strategy %s", strategy_id)
         return {"status": "error", "error": str(exc)}
