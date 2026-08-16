@@ -44,7 +44,7 @@ Two mechanisms keep these pages from drifting into fiction:
 1. **Every claim points at code.** Chapters link to the exact file and function; if the
    link breaks, the doc is wrong and the PR that broke it should fix it.
 2. **The contract is executable.** Chapter 9's wire shapes are pinned by golden fixtures
-   in `backend/test/journeys/fixtures/`, enforced from the backend by
+   in `test/backend/journeys/fixtures/`, enforced from the backend by
    `test_contract_fixtures.py` and from the frontend at compile time by
    `frontend/src/api/contracts.test.ts`. The prose describes a contract that tests refuse
    to let either side break silently.

@@ -54,6 +54,13 @@ jobs:
         run: npm ci
 
       # "build" runs tsc first, so this is the type-check and the prod build.
+      # tsc's include covers ../test/frontend, so the vitest files are
+      # type-checked here too.
       - name: Type-check and build
         working-directory: console
         run: npm run build
+
+      # The vitest suite (test/frontend): pure-logic + contract-pin tests.
+      - name: Frontend unit tests (vitest)
+        working-directory: console
+        run: npm test

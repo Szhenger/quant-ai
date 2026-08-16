@@ -88,6 +88,10 @@ brings up Postgres, Redis, and all three.)
 
 ## Test it (offline, except the database)
 
+The suite lives at the repo root in [`test/backend/`](../test/README.md) (`backend/test`
+is a symlink to it, so `cd backend && pytest` still works), and the
+[`test/qtest`](../test/README.md) runner selects suites by behavior area.
+
 The tests run against **PostgreSQL** — the same engine as production, so row locking and
 duration arithmetic are exercised for real. Everything else stays hermetic: a dedicated
 `config.test_settings` runs Celery **eagerly** (tasks execute inline, no broker), uses an
@@ -107,7 +111,7 @@ Chapter 1–6 math, `test_evaluation.py` and `test_compiler.py` exercise the str
 web tier's performance/concurrency behavior (single-flight caching, ETags, cursor pages,
 the WebSocket heartbeat).
 
-## The UX-invariant framework (`test/journeys/`)
+## The UX-invariant framework (`test/backend/journeys/`)
 
 On top of the unit and contract layers sits an *experience* layer that keeps future PRs
 from silently losing behavior users rely on:

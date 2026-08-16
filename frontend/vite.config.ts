@@ -26,6 +26,10 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    // The vitest suite lives with the rest of the tests at the repo root
+    // (test/frontend); the files import back into frontend/src by relative
+    // path, so module resolution still starts inside this package.
+    dir: "../test/frontend",
+    include: ["**/*.test.ts"],
   },
 });

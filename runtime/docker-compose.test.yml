@@ -24,6 +24,10 @@ services:
       DJANGO_SECRET_KEY: test-only-secret-key
       DJANGO_DEBUG: "False"
     command: sh -c "pytest -q"
+    # The suite lives at the repo root (test/backend); backend/.dockerignore
+    # keeps it out of the image, so mount it where pytest.ini expects it.
+    volumes:
+      - ../test/backend:/app/test
     depends_on:
       test-db:
         condition: service_healthy

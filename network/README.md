@@ -38,7 +38,7 @@ When the frontend calls `GET /api/v1/markets/AAPL/analysis/`, from the bottom up
    is about: `Authorization: Bearer <JWT>` (who you are) and `X-Workspace-ID` (which
    tenant you're acting in).
 5. **JSON** — the response body: the contract pinned by the golden fixtures in
-   `backend/test/journeys/fixtures/`. Plus `ETag` (a revalidation fingerprint — a repeat
+   `test/backend/journeys/fixtures/`. Plus `ETag` (a revalidation fingerprint — a repeat
    request with `If-None-Match` costs a `304` instead of a recompute) and gzip
    (`Content-Encoding`), because indicator payloads are large, repetitive JSON.
 
