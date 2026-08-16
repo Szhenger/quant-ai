@@ -31,7 +31,7 @@ def _operand_from_data(data: dict) -> dict:
     try:
         return {"value": float(raw)}
     except (TypeError, ValueError):
-        raise GraphCompilationError("Quant node has an invalid threshold value.")
+        raise GraphCompilationError("Quant node has an invalid threshold value.") from None
 
 
 def _compile_compare(node: dict) -> dict:
@@ -113,11 +113,11 @@ def compile_graph(nodes: list, edges: list) -> dict:
     ai_id = ais[0]["id"] if ais else None
 
     def children_of(parent_id):
-        kids = []
-        for edge in edges:
-            if edge.get("target") == parent_id and edge.get("source") in condition_ids:
-                kids.append(node_map[edge["source"]])
-        return kids
+        return [
+            node_map[edge["source"]]
+            for edge in edges
+            if edge.get("target") == parent_id and edge.get("source") in condition_ids
+        ]
 
     def compile_node(node, seen):
         nid = node["id"]

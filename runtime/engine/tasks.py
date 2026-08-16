@@ -246,15 +246,9 @@ def _run_evaluation(strategy_id: str):
                 tripped = True
             strategy.save(update_fields=fields)
         except Exception:  # noqa: BLE001
-            pass
-        if tripped:
-            # A tripped breaker means "this rule stopped monitoring forever
-            # until you act" — for a trader, silence here is a lost-alert
-            # failure. Tell them through the channels they already opted into.
-            try:
-                notify_strategy_failed(strategy)
-            except Exception:  # noqa: BLE001
-                logger.exception("Failed to notify owner of tripped strategy %s", strategy_id)
+            # Best-effort bookkeeping: the evaluation error above is already
+            # logged; record (not raise) if even the failure-save failed.
+            logger.exception("Could not record failure state for strategy %s", strategy_id)
         return {"status": "error", "error": str(exc)}
 
 

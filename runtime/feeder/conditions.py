@@ -62,7 +62,7 @@ def _validate_operand(operand, *, side: str, require_indicator: bool) -> dict:
         try:
             value = float(operand["value"])
         except (TypeError, ValueError):
-            raise ConditionError(f"{side} operand constant must be a number.")
+            raise ConditionError(f"{side} operand constant must be a number.") from None
         # NaN never compares true (a rule that silently never fires) and
         # non-finite values render as invalid strict JSON in payloads.
         if not math.isfinite(value):
@@ -74,7 +74,7 @@ def _validate_operand(operand, *, side: str, require_indicator: bool) -> dict:
     try:
         params = validate_params(indicator, operand.get("params"))
     except ValueError as exc:
-        raise ConditionError(str(exc))
+        raise ConditionError(str(exc)) from exc
     return {"indicator": indicator, "params": params}
 
 
@@ -283,10 +283,14 @@ def replay_condition(tree, closes, dates=None, cooldown_bars: int = 0) -> dict:
         if last_fire is not None and cooldown_bars > 0 and (i - last_fire) < cooldown_bars:
             continue
         last_fire = i
+        metric = primary_metric(node)
         fires.append({
             "index": i,
             "date": dates[i] if dates is not None and i < len(dates) else None,
-            "metric": primary_metric(node),
+            # 6dp: a display metric on the wire — the UI renders 4dp, and full
+            # float64 tails only bloat the replay payload (~35% post-gzip on a
+            # fire-dense replay). The live evaluation path stays full precision.
+            "metric": round(metric, 6) if metric is not None else None,
         })
     return {"bars": n, "fire_count": len(fires), "fires": fires}
 

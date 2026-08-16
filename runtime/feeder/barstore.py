@@ -116,7 +116,9 @@ class BarStore:
         self.root.mkdir(parents=True, exist_ok=True)
         path = self._path(series.ticker)
 
-        new = dict(zip(series.dates, (float(c) for c in series.closes)))
+        # strict: a dates/closes length mismatch must fail loudly, not silently
+        # truncate the series it caches.
+        new = dict(zip(series.dates, (float(c) for c in series.closes), strict=True))
         existing = self._read_all(path)
         overlap = [d for d in new if d in existing]
         if overlap and all(math.isclose(existing[d], new[d], rel_tol=1e-4) for d in overlap):

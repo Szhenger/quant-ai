@@ -45,10 +45,10 @@ def ensure_public_webhook_url(url: str) -> None:
     except ValueError:
         try:
             infos = socket.getaddrinfo(host, None)
-        except OSError:
+        except OSError as exc:
             raise UnresolvableWebhookHostError(
                 f"Webhook host {host!r} could not be resolved."
-            )
+            ) from exc
         # Strip any IPv6 zone id ("fe80::1%en0") before parsing.
         addresses = [ipaddress.ip_address(str(info[4][0]).split("%")[0]) for info in infos]
     if not addresses or not all(a.is_global for a in addresses):

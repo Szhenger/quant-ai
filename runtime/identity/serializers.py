@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
 from rest_framework import serializers
 
 from .models import Workspace, WatchedTicker
@@ -15,13 +16,16 @@ class RegisterSerializer(serializers.ModelSerializer):
         fields = ("id", "username", "email", "password")
 
     def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data["username"],
-            email=validated_data.get("email", ""),
-            password=validated_data["password"],
-        )
-        # Every user starts with a default workspace so the app is usable immediately.
-        Workspace.objects.create(name="My Workspace", owner=user)
+        # Atomic: a failure creating the default workspace must roll back the
+        # user too — every account is born usable, never workspace-less.
+        with transaction.atomic():
+            user = User.objects.create_user(
+                username=validated_data["username"],
+                email=validated_data.get("email", ""),
+                password=validated_data["password"],
+            )
+            # Every user starts with a default workspace so the app is usable immediately.
+            Workspace.objects.create(name="My Workspace", owner=user)
         return user
 
 
@@ -48,7 +52,7 @@ class WatchedTickerSerializer(serializers.ModelSerializer):
         try:
             ticker = normalize_ticker(ticker)
         except ValueError as exc:
-            raise serializers.ValidationError({"ticker": str(exc)})
+            raise serializers.ValidationError({"ticker": str(exc)}) from exc
         if "ticker" in attrs:
             attrs["ticker"] = ticker
         request = self.context.get("request")

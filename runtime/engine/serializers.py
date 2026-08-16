@@ -67,14 +67,14 @@ class StrategySerializer(serializers.ModelSerializer):
         try:
             return normalize_ticker(value)
         except ValueError as exc:
-            raise serializers.ValidationError(str(exc))
+            raise serializers.ValidationError(str(exc)) from exc
 
     def validate_webhook_url(self, value):
         if value:
             try:
                 ensure_public_webhook_url(value)
             except ValueError as exc:
-                raise serializers.ValidationError(str(exc))
+                raise serializers.ValidationError(str(exc)) from exc
         return value
 
     def validate_threshold(self, value):
@@ -111,7 +111,7 @@ class StrategySerializer(serializers.ModelSerializer):
         try:
             tree = validate_condition_tree(condition)
         except ValueError as exc:
-            raise serializers.ValidationError({"condition": str(exc)})
+            raise serializers.ValidationError({"condition": str(exc)}) from exc
         attrs["condition"] = tree
         # Keep the flat columns populated with a representative leaf so legacy
         # readers (the alert row, list views) stay coherent.
@@ -134,7 +134,7 @@ class StrategySerializer(serializers.ModelSerializer):
         try:
             attrs["params"] = validate_params(indicator, params)
         except ValueError as exc:
-            raise serializers.ValidationError({"params": str(exc)})
+            raise serializers.ValidationError({"params": str(exc)}) from exc
         return attrs
 
 

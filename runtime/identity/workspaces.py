@@ -19,4 +19,4 @@ def resolve_active_workspace(request) -> Workspace:
     try:
         return Workspace.objects.get(id=workspace_id, owner=request.user)
     except (Workspace.DoesNotExist, ValidationError, ValueError):
-        raise NotFound("Workspace not found or not owned by the current user.")
+        raise NotFound("Workspace not found or not owned by the current user.") from None

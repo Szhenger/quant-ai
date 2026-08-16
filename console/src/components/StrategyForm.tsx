@@ -1,15 +1,18 @@
 import { FormEvent, useEffect, useState } from "react";
 import api from "../api/client";
 import { extractError } from "../api/errors";
-import type { Indicator, IndicatorCatalog } from "../api/types";
+import { useIndicatorCatalog } from "../api/hooks";
 
 interface StrategyFormProps {
   onCreated: () => void;
 }
 
 export default function StrategyForm({ onCreated }: StrategyFormProps) {
-  const [catalog, setCatalog] = useState<IndicatorCatalog | null>(null);
-  const [catalogError, setCatalogError] = useState<string | null>(null);
+  // Shared React Query catalog (staleTime: Infinity): one fetch per session,
+  // deduped with any other mounted consumer (e.g. the graph builder), and
+  // properly aborted if this form unmounts mid-flight.
+  const catalogQuery = useIndicatorCatalog();
+  const catalog = catalogQuery.data ?? null;
 
   const [name, setName] = useState("");
   const [ticker, setTicker] = useState("AAPL");
@@ -35,18 +38,12 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Seed the initial indicator/operator once the catalog arrives.
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get<IndicatorCatalog>("/indicators/");
-        setCatalog(res.data);
-        setIndicator((prev) => prev || res.data.indicators[0]?.key || "");
-        setOperator((prev) => prev || res.data.operators[0]?.key || "");
-      } catch (err) {
-        setCatalogError(extractError(err));
-      }
-    })();
-  }, []);
+    if (!catalog) return;
+    setIndicator((prev) => prev || catalog.indicators[0]?.key || "");
+    setOperator((prev) => prev || catalog.operators[0]?.key || "");
+  }, [catalog]);
 
   const selectedIndicator = catalog?.indicators.find((i) => i.key === indicator);
 
@@ -119,8 +116,12 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
     }
   };
 
-  if (catalogError) {
-    return <div className="alert error">Could not load indicators: {catalogError}</div>;
+  if (catalogQuery.isError) {
+    return (
+      <div className="alert error">
+        Could not load indicators: {extractError(catalogQuery.error)}
+      </div>
+    );
   }
   if (!catalog) {
     return <p className="muted">Loading indicators…</p>;

@@ -7,7 +7,6 @@ count, bulk mark-read, join hygiene), and the WebSocket heartbeat.
 import threading
 import time
 
-import pytest
 from asgiref.sync import async_to_sync
 from django.core.cache import cache
 

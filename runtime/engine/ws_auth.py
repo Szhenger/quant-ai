@@ -28,8 +28,8 @@ class JWTAuthMiddleware(BaseMiddleware):
             from rest_framework_simplejwt.tokens import AccessToken
 
             access = AccessToken(token)
-            # is_active mirrors DRF's JWTAuthentication on the HTTP path: a
-            # deactivated account must not keep a live alert stream.
+            # is_active mirrors JWTAuthentication over HTTP: a deactivated
+            # account's still-valid access token must not open a socket.
             return get_user_model().objects.get(id=access["user_id"], is_active=True)
         except Exception:  # noqa: BLE001
             return AnonymousUser()

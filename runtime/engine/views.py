@@ -1,4 +1,7 @@
 from django.conf import settings
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import serializers as rf_serializers
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.pagination import CursorPagination
@@ -54,6 +57,11 @@ class StrategyViewSet(viewsets.ModelViewSet):
     throttle_scope = None
 
     def get_queryset(self):
+        # Schema introspection builds views with a fake request (no auth, no
+        # workspace header); without this guard resolve_active_workspace raises
+        # and drf-spectacular falls back to untyped path params.
+        if getattr(self, "swagger_fake_view", False):
+            return Strategy.objects.none()
         workspace = resolve_active_workspace(self.request)
         return Strategy.objects.filter(workspace=workspace)
 
@@ -61,6 +69,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         workspace = resolve_active_workspace(self.request)
         serializer.save(workspace=workspace)
 
+    @extend_schema(request=OpenApiTypes.OBJECT, responses={201: StrategySerializer})
     @action(detail=False, methods=["post"], url_path="deploy-graph")
     def deploy_graph(self, request):
         """Compile a React Flow graph into a strategy and persist it."""
@@ -72,7 +81,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 payload.get("edges", payload.get("connections", [])),
             )
         except GraphCompilationError as exc:
-            raise ValidationError({"graph": str(exc)})
+            raise ValidationError({"graph": str(exc)}) from exc
 
         data = {
             "name": payload.get("name") or f"{compiled['ticker']} {compiled['indicator']}",
@@ -92,6 +101,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
         serializer.save(workspace=workspace)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
+    @extend_schema(request=None, responses=StrategySerializer)
     @action(detail=True, methods=["post"], url_path="rotate-secret")
     def rotate_secret(self, request, pk=None):
         """Regenerate this strategy's webhook HMAC secret.
@@ -107,6 +117,8 @@ class StrategyViewSet(viewsets.ModelViewSet):
         strategy.save(update_fields=["webhook_secret", "updated_at"])
         return Response(self.get_serializer(strategy).data)
 
+    @extend_schema(request=None,
+                   responses={200: OpenApiTypes.OBJECT, 202: OpenApiTypes.OBJECT})
     @action(detail=True, methods=["post"],
             throttle_classes=[ScopedRateThrottle], throttle_scope="evaluate")
     def evaluate(self, request, pk=None):
@@ -128,6 +140,15 @@ class StrategyViewSet(viewsets.ModelViewSet):
         return Response({"status": "queued", "task_id": async_result.id},
                         status=status.HTTP_202_ACCEPTED)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("days", int, description="Replay window, 30-1000 bars."),
+            OpenApiParameter("cooldown_bars", int,
+                             description="Suppress fires within N bars of the last, 0-365."),
+        ],
+        request=None,
+        responses=OpenApiTypes.OBJECT,
+    )
     @action(detail=True, methods=["get", "post"],
             throttle_classes=[ScopedRateThrottle], throttle_scope="replay")
     def replay(self, request, pk=None):
@@ -219,6 +240,8 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
     pagination_class = AlertCursorPagination
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):  # schema introspection
+            return Alert.objects.none()
         workspace = resolve_active_workspace(self.request)
         # select_related: AlertSerializer reads strategy.name for every row.
         qs = Alert.objects.filter(workspace=workspace).select_related("strategy")
@@ -227,6 +250,7 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
             qs = qs.filter(is_read=False)
         return qs
 
+    @extend_schema(request=None, responses=AlertSerializer)
     @action(detail=True, methods=["post"], url_path="mark-read")
     def mark_read(self, request, pk=None):
         alert = self.get_object()
@@ -234,6 +258,9 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         alert.save(update_fields=["is_read"])
         return Response(self.get_serializer(alert).data)
 
+    @extend_schema(request=None, responses=inline_serializer(
+        name="MarkAllReadResponse", fields={"updated": rf_serializers.IntegerField()},
+    ))
     @action(detail=False, methods=["post"], url_path="mark-all-read")
     def mark_all_read(self, request):
         """One UPDATE for the whole workspace — no read-modify-write race, and
@@ -242,6 +269,9 @@ class AlertViewSet(viewsets.ReadOnlyModelViewSet):
         updated = Alert.objects.filter(workspace=workspace, is_read=False).update(is_read=True)
         return Response({"updated": updated})
 
+    @extend_schema(responses=inline_serializer(
+        name="UnreadCountResponse", fields={"unread": rf_serializers.IntegerField()},
+    ))
     @action(detail=False, methods=["get"], url_path="unread-count")
     def unread_count(self, request):
         """Cheap badge endpoint: an indexed COUNT, no serialization."""
@@ -256,6 +286,11 @@ class MarketAnalysisView(APIView):
     throttle_classes = [ScopedRateThrottle]
     throttle_scope = "analysis"
 
+    @extend_schema(
+        parameters=[OpenApiParameter("days", int, description="History window, 30-730 bars.")],
+        responses=OpenApiTypes.OBJECT,
+        operation_id="market_analysis",
+    )
     def get(self, request, ticker):
         # Ensure the request is workspace-scoped (auth + tenant boundary).
         resolve_active_workspace(request)
@@ -288,8 +323,9 @@ class MarketAnalysisView(APIView):
 class IndicatorCatalogView(APIView):
     """Metadata driving the strategy-builder UI: available indicators + operators."""
 
+    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id="indicator_catalog")
     def get(self, request):
-        return Response({
+        payload = {
             "indicators": [
                 {"key": k, "label": v["label"], "unit": v["unit"],
                  "defaults": v["defaults"],
@@ -298,4 +334,9 @@ class IndicatorCatalogView(APIView):
                 for k, v in INDICATOR_SPECS.items()
             ],
             "operators": [{"key": k, "label": v} for k, v in OPERATORS.items()],
-        })
+        }
+        # Static per-deploy metadata: max-age lets the browser reuse it across
+        # page loads without a request; after expiry the ETag turns the
+        # revalidation into an empty 304. Changes only ship with a deploy, so
+        # an hour of staleness is harmless.
+        return conditional_response(request, payload, max_age=3600)

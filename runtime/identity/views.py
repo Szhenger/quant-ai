@@ -1,6 +1,9 @@
 from django.core.cache import cache
 from django.db import IntegrityError, connections
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, inline_serializer
 from rest_framework import generics, permissions, viewsets
+from rest_framework import serializers as rf_serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -35,6 +38,11 @@ class LogoutView(APIView):
 
     permission_classes = [permissions.AllowAny]
 
+    @extend_schema(
+        request=inline_serializer(name="LogoutRequest",
+                                  fields={"refresh": rf_serializers.CharField()}),
+        responses={205: None},
+    )
     def post(self, request):
         from rest_framework_simplejwt.exceptions import TokenError
         from rest_framework_simplejwt.tokens import RefreshToken
@@ -60,6 +68,8 @@ class HealthView(APIView):
     permission_classes = [permissions.AllowAny]
     throttle_classes = []
 
+    @extend_schema(responses={200: OpenApiTypes.OBJECT, 503: OpenApiTypes.OBJECT},
+                   operation_id="healthz")
     def get(self, request):
         checks = {}
         try:
@@ -84,6 +94,8 @@ class WorkspaceViewSet(viewsets.ModelViewSet):
     serializer_class = WorkspaceSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):  # schema introspection
+            return Workspace.objects.none()
         return Workspace.objects.filter(owner=self.request.user)
 
     def perform_create(self, serializer):
@@ -96,6 +108,8 @@ class WatchedTickerViewSet(viewsets.ModelViewSet):
     serializer_class = WatchedTickerSerializer
 
     def get_queryset(self):
+        if getattr(self, "swagger_fake_view", False):  # schema introspection
+            return WatchedTicker.objects.none()
         workspace = resolve_active_workspace(self.request)
         return WatchedTicker.objects.filter(workspace=workspace)
 
@@ -103,6 +117,8 @@ class WatchedTickerViewSet(viewsets.ModelViewSet):
         workspace = resolve_active_workspace(self.request)
         try:
             serializer.save(workspace=workspace)
-        except IntegrityError:
+        except IntegrityError as exc:
             # Backstop for the serializer's exists() check losing a race.
-            raise ValidationError({"ticker": "This ticker is already on the watchlist."})
+            raise ValidationError(
+                {"ticker": "This ticker is already on the watchlist."}
+            ) from exc

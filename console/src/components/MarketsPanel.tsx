@@ -1,6 +1,12 @@
 import { FormEvent, useState } from "react";
 import { extractError } from "../api/errors";
-import { useAddWatch, useAnalysis, useRemoveWatch, useWatchlist } from "../api/hooks";
+import {
+  useAddWatch,
+  useAnalysis,
+  usePrefetchAnalysis,
+  useRemoveWatch,
+  useWatchlist,
+} from "../api/hooks";
 import LineChart from "./LineChart";
 
 function formatValue(v: number | null): string {
@@ -18,6 +24,7 @@ export default function MarketsPanel() {
   const [newNote, setNewNote] = useState("");
 
   const analysis = useAnalysis(ticker);
+  const prefetchAnalysis = usePrefetchAnalysis();
   const watchlist = useWatchlist();
   const addWatch = useAddWatch();
   const removeWatch = useRemoveWatch();
@@ -170,7 +177,14 @@ export default function MarketsPanel() {
           <ul className="watchlist">
             {(watchlist.data ?? []).map((w) => (
               <li key={w.id} className="watchlist-row">
-                <button className="link-ticker" onClick={() => commit(w.ticker)}>
+                <button
+                  className="link-ticker"
+                  onClick={() => commit(w.ticker)}
+                  // Warm the cache on intent — by click time the analysis is
+                  // usually already local, so the chart renders instantly.
+                  onMouseEnter={() => prefetchAnalysis(w.ticker)}
+                  onFocus={() => prefetchAnalysis(w.ticker)}
+                >
                   {w.ticker}
                 </button>
                 {w.note && <span className="muted"> — {w.note}</span>}
