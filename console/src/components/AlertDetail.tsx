@@ -1,3 +1,6 @@
+import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { keys, useWorkspaceId } from "../api/hooks";
 import type { Alert } from "../api/types";
 
 /**
@@ -89,13 +92,34 @@ interface ChannelOutcome {
   permanent?: boolean;
 }
 
+// Younger than this with no recorded outcome = deliveries are plausibly still
+// in flight (per-channel tasks retry with backoff for a few minutes).
+const DELIVERY_PENDING_WINDOW_MS = 10 * 60_000;
+
 export default function AlertDetail({ alert }: { alert: Alert }) {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
   const tree = isDetailNode(alert.condition_detail) ? alert.condition_detail : null;
   const delivery =
     alert.delivery && typeof alert.delivery === "object"
       ? (alert.delivery as Record<string, ChannelOutcome>)
       : {};
   const channels = Object.entries(delivery);
+
+  // Delivery outcomes are recorded after each channel task runs, while the
+  // socket frame that put this alert on screen was serialized before any of
+  // them — refetch on open so recorded outcomes replace the stale row.
+  useEffect(() => {
+    if (channels.length === 0) {
+      void qc.invalidateQueries({ queryKey: keys.alerts(ws) });
+    }
+    // Once per opened alert, not per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alert.id]);
+
+  const ageMs = Date.now() - new Date(alert.created_at).getTime();
+  const deliveryPending =
+    channels.length === 0 && Number.isFinite(ageMs) && ageMs < DELIVERY_PENDING_WINDOW_MS;
 
   return (
     <div className="alert-detail">
@@ -111,7 +135,9 @@ export default function AlertDetail({ alert }: { alert: Alert }) {
       <div className="detail-section">
         <span className="muted small">Delivery</span>
         {channels.length === 0 ? (
-          <p className="muted small">No delivery channels were enabled.</p>
+          <p className="muted small">
+            {deliveryPending ? "Delivery in progress…" : "No delivery channels were enabled."}
+          </p>
         ) : (
           <ul className="detail-delivery">
             {channels.map(([channel, outcome]) => (

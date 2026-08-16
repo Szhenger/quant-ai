@@ -9,9 +9,11 @@ import {
   useUpdateStrategy,
   useWorkspaceId,
 } from "../api/hooks";
+import { useRealtimeStore } from "../realtime/useAlertsSocket";
 import StrategyForm from "./StrategyForm";
 import StrategyEditor from "./StrategyEditor";
 import ReplayPanel from "./ReplayPanel";
+import type { EvaluateResult } from "../api/types";
 
 // The graph builder pulls in reactflow (~the largest thing in the bundle);
 // load it only when someone actually opens the graph tab.
@@ -25,6 +27,43 @@ function formatDate(iso: string | null): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+interface EvalDisplay {
+  text: string;
+  title?: string;
+}
+
+const QUEUED_TEXT = "Queued — check Last evaluated shortly";
+
+/** Human copy for the raw evaluate statuses the API returns. */
+function describeEvalResult(data: EvaluateResult): EvalDisplay {
+  switch (data.status) {
+    case "alerted":
+      return { text: "Alert fired" };
+    case "quant_not_met":
+      return {
+        text:
+          typeof data.value === "number"
+            ? `Condition not met (value ${data.value.toFixed(2)})`
+            : "Condition not met",
+      };
+    case "cooldown":
+      return { text: "In cooldown" };
+    case "ai_suppressed":
+      return {
+        text: "AI advised no alert",
+        title: typeof data.rationale === "string" ? data.rationale : undefined,
+      };
+    case "locked":
+      return { text: "Already evaluating" };
+    case "queued":
+      return { text: QUEUED_TEXT };
+    case "error":
+      return { text: typeof data.error === "string" ? data.error : "error" };
+    default:
+      return { text: data.status };
+  }
+}
+
 export default function StrategiesPanel() {
   const ws = useWorkspaceId();
   const qc = useQueryClient();
@@ -35,20 +74,45 @@ export default function StrategiesPanel() {
   const updateStrategy = useUpdateStrategy();
 
   const [builder, setBuilder] = useState<Builder>("form");
-  const [evalState, setEvalState] = useState<Record<string, string>>({});
+  const [evalState, setEvalState] = useState<Record<string, EvalDisplay>>({});
   const [openReplayId, setOpenReplayId] = useState<string | null>(null);
   const [openEditId, setOpenEditId] = useState<string | null>(null);
   // Two-step delete: first click arms this id, second click within the window
   // actually deletes. Prevents losing a strategy to one stray click.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
+  // Circuit-breaker notices pushed over the WebSocket (strategy_status frames).
+  const strategyNotice = useRealtimeStore((s) => s.strategyNotice);
+  const setStrategyNotice = useRealtimeStore((s) => s.setStrategyNotice);
+
   const onCreated = () => void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
 
+  const clearEval = (id: string) =>
+    setEvalState((s) => {
+      if (!(id in s)) return s;
+      const { [id]: _dropped, ...rest } = s;
+      return rest;
+    });
+
   const runEvaluate = (id: string) => {
-    setEvalState((s) => ({ ...s, [id]: "evaluating…" }));
+    setEvalState((s) => ({ ...s, [id]: { text: "evaluating…" } }));
     evaluate.mutate(id, {
-      onSuccess: (data) => setEvalState((s) => ({ ...s, [id]: data.status })),
-      onError: (err) => setEvalState((s) => ({ ...s, [id]: extractError(err) })),
+      onSuccess: (data) => {
+        setEvalState((s) => ({ ...s, [id]: describeEvalResult(data) }));
+        // The evaluate hook refetches the row ~4s after a queued dispatch; once
+        // that lands, drop the stale "Queued" cell so the row's own fields
+        // (status, Last triggered) speak for themselves.
+        if (data.status === "queued") {
+          setTimeout(() => {
+            setEvalState((s) => {
+              if (s[id]?.text !== QUEUED_TEXT) return s;
+              const { [id]: _dropped, ...rest } = s;
+              return rest;
+            });
+          }, 4_500);
+        }
+      },
+      onError: (err) => setEvalState((s) => ({ ...s, [id]: { text: extractError(err) } })),
     });
   };
 
@@ -57,7 +121,12 @@ export default function StrategiesPanel() {
   const setStatus = (id: string, status: "active" | "paused") => {
     updateStrategy.mutate(
       { id, patch: { status } },
-      { onError: (err) => setEvalState((s) => ({ ...s, [id]: extractError(err) })) },
+      {
+        onError: (err) => setEvalState((s) => ({ ...s, [id]: { text: extractError(err) } })),
+        // The row changed identity (paused/reactivated): a stale eval result
+        // no longer describes it.
+        onSuccess: () => clearEval(id),
+      },
     );
   };
 
@@ -68,11 +137,14 @@ export default function StrategiesPanel() {
       return;
     }
     setConfirmDeleteId(null);
-    remove.mutate(id);
+    remove.mutate(id, { onSuccess: () => clearEval(id) });
   };
 
   const rows = strategies.data ?? [];
-  const busyId = evaluate.isPending ? evaluate.variables : remove.isPending ? remove.variables : null;
+  // Separate busy tracking per mutation: a pending delete must not re-enable
+  // (or disable) another row's Evaluate button and vice versa.
+  const evalBusyId = evaluate.isPending ? evaluate.variables : null;
+  const deleteBusyId = remove.isPending ? remove.variables : null;
 
   return (
     <div className="stack">
@@ -88,6 +160,14 @@ export default function StrategiesPanel() {
           </button>
         </div>
 
+        {strategyNotice && (
+          <div className="alert error">
+            {strategyNotice}{" "}
+            <button className="btn small ghost" onClick={() => setStrategyNotice(null)}>
+              Dismiss
+            </button>
+          </div>
+        )}
         {strategies.isError && <div className="alert error">{extractError(strategies.error)}</div>}
         {remove.isError && <div className="alert error">{extractError(remove.error)}</div>}
 
@@ -109,7 +189,7 @@ export default function StrategiesPanel() {
               </thead>
               <tbody>
                 {rows.map((s) => {
-                  const busy = busyId === s.id;
+                  const busy = evalBusyId === s.id || deleteBusyId === s.id;
                   const open = openReplayId === s.id;
                   const editing = openEditId === s.id;
                   const armed = confirmDeleteId === s.id;
@@ -123,7 +203,9 @@ export default function StrategiesPanel() {
                         </td>
                         <td>{s.ticker}</td>
                         <td className="mono">
-                          {s.indicator} {s.operator} {s.threshold}
+                          {/* The real firing rule — for composites the flat
+                              columns only hold a representative leaf. */}
+                          {s.condition_summary || `${s.indicator} ${s.operator} ${s.threshold}`}
                         </td>
                         <td>
                           <span className="badge status" title={s.last_error || undefined}>
@@ -131,12 +213,14 @@ export default function StrategiesPanel() {
                           </span>
                         </td>
                         <td className="muted">{formatDate(s.last_triggered_at)}</td>
-                        <td className="muted">{evalState[s.id] ?? "—"}</td>
+                        <td className="muted" title={evalState[s.id]?.title}>
+                          {evalState[s.id]?.text ?? "—"}
+                        </td>
                         <td className="num actions">
                           <button
                             className="btn small"
                             onClick={() => runEvaluate(s.id)}
-                            disabled={busy}
+                            disabled={evalBusyId === s.id}
                           >
                             Evaluate
                           </button>
@@ -179,7 +263,7 @@ export default function StrategiesPanel() {
                           <button
                             className="btn small danger"
                             onClick={() => onDeleteClick(s.id)}
-                            disabled={busy}
+                            disabled={deleteBusyId === s.id}
                             title={armed ? "Click again to permanently delete" : undefined}
                           >
                             {armed ? "Confirm?" : "Delete"}
@@ -189,7 +273,10 @@ export default function StrategiesPanel() {
                       {open && (
                         <tr className="replay-row">
                           <td colSpan={7}>
-                            <ReplayPanel strategyId={s.id} />
+                            <ReplayPanel
+                              strategyId={s.id}
+                              liveCooldownMinutes={s.cooldown_minutes}
+                            />
                           </td>
                         </tr>
                       )}
@@ -198,7 +285,12 @@ export default function StrategiesPanel() {
                           <td colSpan={7}>
                             <StrategyEditor
                               strategy={s}
-                              onClose={() => setOpenEditId(null)}
+                              onClose={() => {
+                                setOpenEditId(null);
+                                // An edit may have changed what the rule means;
+                                // don't keep describing the old one.
+                                clearEval(s.id);
+                              }}
                             />
                           </td>
                         </tr>

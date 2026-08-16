@@ -45,7 +45,8 @@ describe("wire-contract fixtures match types.ts", () => {
     expect(sortedKeys(load("strategy"))).toEqual(
       contractKeys<Strategy>({
         id: true, name: true, ticker: true, indicator: true, params: true,
-        operator: true, threshold: true, condition: true, ai_enabled: true,
+        operator: true, threshold: true, condition: true,
+        condition_summary: true, ai_enabled: true,
         ai_prompt: true, notify_in_app: true, notify_email: true,
         webhook_url: true, webhook_secret: true, status: true,
         poll_interval_minutes: true, cooldown_minutes: true,

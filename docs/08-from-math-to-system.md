@@ -156,7 +156,7 @@ if claimed:
 `.delay(...)` doesn't run `evaluate_strategy` — it drops a little message ("please evaluate strategy `X`") onto a queue backed by Redis. Somewhere else entirely, a pool of **workers** (`CELERY_WORKER_CONCURRENCY = 4` by default) pulls messages off that queue and actually runs them. Why is this decoupling worth a whole extra moving part?
 
 - **Absorb bursts.** If 5,000 strategies come due at once, the queue holds 5,000 messages and the workers chew through them at their own pace. Nothing is dropped; nothing blocks the scheduler.
-- **Retry.** A message that fails can be redelivered. Work isn't lost just because a worker died mid-task.
+- **Retry.** A message that fails can be redelivered. `evaluate_strategy` runs with `acks_late=True`, so the queue only forgets a message after the task *finishes* — a worker that dies mid-evaluation gets the message redelivered rather than losing the run. (Safe to redeliver: the per-strategy lock and the cooldown transaction in Chapter 10 make evaluation idempotent.)
 - **Scale independently.** Too slow? Add workers. You don't touch Beat, the API, or the database schema — you turn one knob.
 
 This is the **producer/consumer** pattern: Beat produces work, workers consume it, and the queue in the middle lets them run at different speeds without knowing about each other. (That "run at different speeds" is exactly where Chapter 10's bug will crawl in — hold that thought.)

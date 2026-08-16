@@ -141,7 +141,7 @@ urlpatterns = [
 | | `POST /strategies/` | create from an explicit body (see below) | Define a rule: ticker + indicator + operator + threshold + AI + delivery + timing |
 | | `PATCH /strategies/{id}/`, `DELETE /strategies/{id}/` | update / remove | Ordinary edit and teardown of one rule |
 | | `POST /strategies/deploy-graph/` | compile a React-Flow node graph into a strategy | The visual builder (§9.6): the UI sends nodes and edges, the server compiles them into the same `Strategy` |
-| | `POST /strategies/{id}/evaluate/` | evaluate now → `{status: "alerted"｜"quant_not_met"｜"cooldown"｜"ai_suppressed"｜"error", ...}` | Run the rule *right now*, for testing — the manual trigger behind the scheduled sweep of Chapters 8 & 10 |
+| | `POST /strategies/{id}/evaluate/` | evaluate now → `{status: "alerted"｜"quant_not_met"｜"cooldown"｜"ai_suppressed"｜"locked"｜"error", ...}`; with a real worker fleet the call returns `202 {status: "queued"}` and the outcome lands on the strategy row / alerts | Run the rule *right now*, for testing — the manual trigger behind the scheduled sweep of Chapters 8 & 10 |
 | **Alerts** | `GET /alerts/?unread=1` | paginated alert list | Read your history; `unread=1` filters to what you haven't seen |
 | | `POST /alerts/{id}/mark-read/` | mark one read | Clear the "NEW" badge — a tiny bit of read/unread state |
 
@@ -160,7 +160,9 @@ A representative `POST /strategies/` body — this *is* the encoded form of "AAP
 
 Two fields worth pausing on, because they're the seam to the next chapter: `poll_interval_minutes` (how often the scheduler considers this rule) and `cooldown_minutes` (how long after firing it must stay quiet). Those two numbers are the entire subject of [Chapter 10](10-concurrency-and-safety.md) — the difference between "alert me when this is true" and "alert me *once* when this becomes true."
 
-> **Short: lists come paginated.** `GET /strategies/` and `GET /alerts/` don't hand back every row — the server uses limit/offset pagination (page size 50), so responses look like `{count, next, previous, results: [...]}`. Your code reads `results`. This matters the day a busy workspace has 4,000 alerts and you did *not* want all of them in one response.
+> **Short: lists come paginated.** `GET /strategies/` uses limit/offset pagination (page size 50): `{count, next, previous, results: [...]}`. `GET /alerts/` — the one table that grows without bound — uses **cursor** pagination instead: `{next, previous, results: [...]}` with *no* `count`, because every cursor page is a constant-cost range scan (page 100 of an offset scan costs 100× page 1, and concurrently-arriving alerts can't shift a cursor window the way they shift an offset). Your code reads `results` either way.
+
+> **Webhook deliveries are at-least-once.** A delivery whose response is lost after your receiver processed it will be retried, and the reconciliation sweep can re-send after a crash. Every delivery carries `X-QuantAI-Alert-Id` — dedupe on it. Verify `X-QuantAI-Signature` (HMAC-SHA256 of `"<X-QuantAI-Timestamp>.<body>"` with your strategy's `webhook_secret`) and reject stale timestamps.
 
 ## 9.6 Two ways to build the same strategy
 

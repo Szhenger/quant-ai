@@ -11,6 +11,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from identity.caching import cached_compute, conditional_response, stable_key
+from identity.validators import normalize_ticker
 from identity.workspaces import resolve_active_workspace
 from feeder import (
     INDICATOR_SPECS,
@@ -298,7 +299,12 @@ class MarketAnalysisView(APIView):
         except ValueError:
             days = 180
         days = max(30, min(days, 730))
-        symbol = ticker.upper()
+        # Same shape rule as strategies/watchlist: arbitrary path strings must
+        # not reach the upstream provider or become shared cache keys.
+        try:
+            symbol = normalize_ticker(ticker)
+        except ValueError as exc:
+            raise ValidationError({"ticker": str(exc)})
 
         # Market analysis is a pure function of public market data — the cache
         # is deliberately shared across users and workspaces.
@@ -322,7 +328,9 @@ class IndicatorCatalogView(APIView):
         payload = {
             "indicators": [
                 {"key": k, "label": v["label"], "unit": v["unit"],
-                 "defaults": v["defaults"], "help": v["help"]}
+                 "defaults": v["defaults"],
+                 "default_threshold": v.get("default_threshold"),
+                 "help": v["help"]}
                 for k, v in INDICATOR_SPECS.items()
             ],
             "operators": [{"key": k, "label": v} for k, v in OPERATORS.items()],

@@ -225,8 +225,22 @@ def _operand_full_series(operand, closes, cache) -> List[Optional[float]]:
     return cache[key]
 
 
+def _prev_valid(series, i) -> Optional[float]:
+    """Last non-``None`` value strictly before bar ``i``.
+
+    Mirrors live evaluation's ``last_valid`` (which skips interior ``None``s,
+    e.g. PCT_CHANGE over a zero close), so a cross evaluates identically in
+    replay and live — replay is sold as "exactly what live would do".
+    """
+    for j in range(i - 1, -1, -1):
+        if series[j] is not None:
+            return series[j]
+    return None
+
+
 def _eval_node_at(node, i, closes, cache) -> dict:
-    """Evaluate a node as of bar ``i`` — value = series[i], previous = series[i-1]."""
+    """Evaluate a node as of bar ``i`` — value = series[i], previous = the last
+    valid value before ``i``."""
     if node["type"] == "group":
         children = [_eval_node_at(c, i, closes, cache) for c in node["children"]]
         results = [c["result"] for c in children]
@@ -234,8 +248,8 @@ def _eval_node_at(node, i, closes, cache) -> dict:
         return {"type": "group", "op": node["op"], "result": result, "children": children}
     left = _operand_full_series(node["left"], closes, cache)
     right = _operand_full_series(node["right"], closes, cache)
-    lv, lprev = left[i], (left[i - 1] if i >= 1 else None)
-    rv, rprev = right[i], (right[i - 1] if i >= 1 else None)
+    lv, lprev = left[i], _prev_valid(left, i)
+    rv, rprev = right[i], _prev_valid(right, i)
     return {
         "type": "compare",
         "operator": node["operator"],
@@ -253,7 +267,8 @@ def replay_condition(tree, closes, dates=None, cooldown_bars: int = 0) -> dict:
     cooldown: after a recorded fire, further fires within N bars are suppressed
     (measured from the last *recorded* fire, exactly as the live system measures
     from the last alert). Evaluation at ``i`` uses each operand's value at bar
-    ``i`` and its immediately preceding bar, so warm-up bars simply never fire.
+    ``i`` and its last valid prior value (same semantics as live evaluation),
+    so warm-up bars simply never fire.
 
     Returns ``{"bars", "fire_count", "fires": [{index, date, metric}]}``.
     """

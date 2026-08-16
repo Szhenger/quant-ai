@@ -118,13 +118,38 @@ class YFinanceProvider(BaseProvider):
             raise ProviderError(f"Insufficient price history for {ticker!r}")
         return PriceSeries(ticker=ticker.upper(), closes=closes, dates=dates)
 
-    def news(self, ticker: str, limit: int = 5) -> List[dict]:
-        import yfinance as yf
+    # yfinance's news endpoint takes no timeout parameter, unlike history():
+    # a blackholed call would otherwise pin a worker until the Celery soft
+    # time limit (210s). The fetch runs on a bounded-wait daemon thread, and
+    # results are cached fleet-wide so N same-ticker evaluations per window
+    # cost one upstream call.
+    NEWS_TIMEOUT_SECONDS = 10
+    NEWS_CACHE_TTL = 600
 
+    def news(self, ticker: str, limit: int = 5) -> List[dict]:
+        import concurrent.futures
+
+        import yfinance as yf
+        from django.core.cache import cache
+
+        cache_key = f"quantai:news:{ticker.upper()}"
         try:
-            raw = yf.Ticker(ticker).news or []
-        except Exception:  # noqa: BLE001
+            cached = cache.get(cache_key)
+        except Exception:  # noqa: BLE001 — cache outage must not stop the feed
+            cached = None
+        if cached is not None:
+            return cached[:limit]
+
+        # No context manager: `with` would shutdown(wait=True) and block on the
+        # very hang the timeout exists to escape.
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(lambda: yf.Ticker(ticker).news or [])
+        try:
+            raw = future.result(timeout=self.NEWS_TIMEOUT_SECONDS)
+        except Exception:  # noqa: BLE001 — timeout or upstream error
             raw = []
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
         out = []
         for item in raw[:limit]:
             content = item.get("content", item)
@@ -133,6 +158,11 @@ class YFinanceProvider(BaseProvider):
                 "source": (content.get("provider") or {}).get("displayName", "yfinance"),
                 "published_at": content.get("pubDate") or item.get("providerPublishTime"),
             })
+        if out:
+            try:
+                cache.set(cache_key, out, self.NEWS_CACHE_TTL)
+            except Exception:  # noqa: BLE001
+                pass
         return out
 
 

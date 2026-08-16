@@ -22,6 +22,8 @@ export interface AlertSocketOptions {
   /** Called on every (re)connect. Return null to skip (not authenticated yet). */
   buildUrl: () => string | null;
   onAlert: (alert: unknown) => void;
+  /** Strategy lifecycle pushes (e.g. a circuit breaker tripping to FAILED). */
+  onStrategyStatus?: (strategy: unknown) => void;
   onStatus: (status: SocketStatus) => void;
   heartbeatMs?: number;
   pongTimeoutMs?: number;
@@ -76,9 +78,13 @@ export class ReconnectingAlertSocket {
     };
 
     ws.onmessage = (event) => {
-      let data: { type?: string; alert?: unknown };
+      let data: { type?: string; alert?: unknown; strategy?: unknown };
       try {
-        data = JSON.parse(event.data as string) as { type?: string; alert?: unknown };
+        data = JSON.parse(event.data as string) as {
+          type?: string;
+          alert?: unknown;
+          strategy?: unknown;
+        };
       } catch {
         return; // malformed frame — ignore
       }
@@ -87,7 +93,10 @@ export class ReconnectingAlertSocket {
         this.pongDeadline = null;
       } else if (data.type === "alert" && data.alert) {
         this.opts.onAlert(data.alert);
+      } else if (data.type === "strategy_status" && data.strategy) {
+        this.opts.onStrategyStatus?.(data.strategy);
       }
+      // Unknown frame types are ignored — the server may grow new ones.
     };
 
     ws.onerror = () => {

@@ -170,12 +170,31 @@ CELERY_WORKER_CONCURRENCY = int(os.environ.get("CELERY_CONCURRENCY", "4"))
 # engine.tasks), so a lock can never expire while its task is still running.
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "210"))
 CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "240"))
+# Results expire quickly: nothing reads a stored result except the eager path
+# in the manual-evaluate view (which never touches the backend). Without this,
+# one sweep result per minute plus one per evaluation accrues in Redis for
+# Celery's default 24h — on a small noeviction Redis that is an outage clock.
+CELERY_RESULT_EXPIRES = int(os.environ.get("CELERY_RESULT_EXPIRES", "3600"))
 CELERY_BEAT_SCHEDULE = {
     "sweep-due-strategies-every-minute": {
         "task": "engine.tasks.sweep_due_strategies",
         "schedule": 60.0,
     },
+    # Delivery reconciliation: re-enqueue channels that never recorded an
+    # outcome (worker died between the alert's commit and the fan-out).
+    "reconcile-undelivered-alerts": {
+        "task": "engine.tasks.reconcile_undelivered_alerts",
+        "schedule": 300.0,
+    },
+    # Retention: unbounded tables degrade to a stall over months, not days.
+    "prune-expired-records-daily": {
+        "task": "engine.tasks.prune_expired_records",
+        "schedule": 24 * 3600.0,
+    },
 }
+
+# How long fired alerts are kept before the daily retention job deletes them.
+ALERT_RETENTION_DAYS = int(os.environ.get("ALERT_RETENTION_DAYS", "180"))
 
 # Consecutive evaluation failures before a strategy is auto-paused to FAILED
 # (the circuit breaker). Reactivating the strategy re-arms it.
@@ -223,6 +242,10 @@ SPECTACULAR_SETTINGS = {
     "DESCRIPTION": "Quantitative market monitoring, AI-contextualised alerting, and strategy management.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    # drf-spectacular's serve views default to AllowAny, bypassing the
+    # project-wide IsAuthenticated: the API surface should not be publicly
+    # enumerable.
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.IsAuthenticated"],
 }
 
 CORS_ALLOWED_ORIGINS = os.environ.get(

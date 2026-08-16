@@ -16,24 +16,39 @@ from .providers import get_provider
 # --------------------------------------------------------------------------- #
 # Indicator specs (drives the UI dropdowns + defaults + lookback sizing)
 # --------------------------------------------------------------------------- #
+# ``default_threshold`` seeds the strategy form with a threshold that sits on
+# the indicator's own scale (a z-score lives in ±3σ, RSI in 0-100, …). Without
+# it a form seeded for one indicator carries a nonsense threshold into another
+# — "Z-Score < 30" is true on every bar and fires every cooldown window.
+# ``None`` = price-scaled indicators, where no universal default exists and the
+# user must choose.
 INDICATOR_SPECS: Dict[str, dict] = {
     "Z_SCORE": {"label": "Z-Score", "unit": "σ", "defaults": {"window": 20},
+                "default_threshold": -2.0,
                 "help": "Standard deviations the latest close sits from its rolling mean."},
     "RSI": {"label": "RSI", "unit": "", "defaults": {"period": 14},
+            "default_threshold": 30.0,
             "help": "Relative Strength Index (0-100). <30 oversold, >70 overbought."},
     "SMA_CROSS": {"label": "SMA Spread (fast-slow)", "unit": "$", "defaults": {"fast": 20, "slow": 50},
+                  "default_threshold": 0.0,
                   "help": "Fast SMA minus slow SMA. Cross above 0 = golden cross."},
     "MACD_HIST": {"label": "MACD Histogram", "unit": "", "defaults": {"fast": 12, "slow": 26, "signal": 9},
+                  "default_threshold": 0.0,
                   "help": "MACD line minus signal line."},
     "PCT_CHANGE": {"label": "% Change", "unit": "%", "defaults": {"window": 1},
+                   "default_threshold": -5.0,
                    "help": "Percent change of the close over N bars."},
     "VOLATILITY": {"label": "Volatility (annualized)", "unit": "%", "defaults": {"window": 20},
+                   "default_threshold": 40.0,
                    "help": "Annualized standard deviation of daily returns."},
     "SMA": {"label": "SMA", "unit": "$", "defaults": {"window": 20},
+            "default_threshold": None,
             "help": "Simple moving average of the close over N bars."},
     "EMA": {"label": "EMA", "unit": "$", "defaults": {"window": 20},
+            "default_threshold": None,
             "help": "Exponential moving average of the close over N bars."},
     "PRICE": {"label": "Price", "unit": "$", "defaults": {},
+              "default_threshold": None,
               "help": "The latest closing price."},
 }
 
@@ -294,8 +309,6 @@ def evaluate_condition(operator: str, value: Optional[float],
         return value <= threshold
     if operator == ">=":
         return value >= threshold
-    if operator == "==":
-        return value == threshold
     if operator == "cross_above":
         return previous is not None and previous <= threshold < value
     if operator == "cross_below":
