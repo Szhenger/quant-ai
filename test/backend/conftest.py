@@ -1,9 +1,38 @@
+from pathlib import Path
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from identity.models import Workspace
+
+# --------------------------------------------------------------------------- #
+# Focus-area markers, applied by directory (registered in backend/pytest.ini).
+# A test under test/backend/rest/ is automatically `-m rest`, and so on; the
+# qtest runner builds its suites from these markers.
+# --------------------------------------------------------------------------- #
+_DIR_MARKERS = {
+    "rest": "rest",
+    "system": "rest",
+    "storage": "postgres",
+    "tasking": "celery_redis",
+    "engine": "celery_redis",
+    "journeys": "journeys",
+    "feeder": "indicators",
+}
+
+
+def pytest_collection_modifyitems(items):
+    here = Path(__file__).parent
+    for item in items:
+        try:
+            top = Path(str(item.fspath)).resolve().relative_to(here.resolve()).parts[0]
+        except ValueError:
+            continue
+        marker = _DIR_MARKERS.get(top)
+        if marker:
+            item.add_marker(getattr(pytest.mark, marker))
 
 
 @pytest.fixture(autouse=True)

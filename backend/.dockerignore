@@ -2,6 +2,10 @@
 # provides configuration (compose env / Render env vars).
 .env
 .venv
+# `backend/test` is a symlink to ../test/backend (outside the build context —
+# it would arrive broken); the compose test service bind-mounts the real
+# directory to /app/test instead.
+test
 __pycache__
 *.pyc
 .pytest_cache

@@ -62,7 +62,7 @@ the results in real time. Everything below is in service of that split.
 | `requests` | Outbound webhook deliveries, HMAC-signed, redirects disabled (`engine/delivery.py`) |
 | `duckdb` | Optional local Parquet bar cache (`feeder/barstore.py`); the pipeline degrades to a no-op without it |
 | `anthropic` | The Claude SDK behind the AI contextualisation layer (`advisor/claude_client.py`) — bounded to 30s/1 retry and never in the critical alerting path |
-| `pytest`, `pytest-django` | The backend test suite (`backend/test/`): unit, system, contract-pin, and journey tests against real PostgreSQL |
+| `pytest`, `pytest-django` | The backend test suite (`test/backend/`): unit, system, contract-pin, and journey tests against real PostgreSQL |
 
 ### Frontend (`frontend/package.json`)
 
@@ -72,7 +72,7 @@ the results in real time. Everything below is in service of that split.
 | `axios` | The HTTP client with auth/workspace headers and error normalisation (`src/api/client.ts`) |
 | `zustand` | Small client-side stores: persisted auth session and realtime connection state (`src/store/`) |
 | `reactflow` | The visual strategy graph builder — asset, quant, AI and delivery nodes compiled server-side into a condition tree; lazy-loaded so it costs nothing until opened |
-| `vitest` | The frontend test suite, including the golden-fixture contract tests that pin `types.ts` to the backend's `backend/test/journeys/fixtures/*.json` |
+| `vitest` | The frontend test suite, including the golden-fixture contract tests that pin `types.ts` to the backend's `test/backend/journeys/fixtures/*.json` |
 | `typescript` | Compile-time half of the API contract; `npm run build` type-checks before bundling |
 
 ---
@@ -119,8 +119,8 @@ The runtime topology — each box is a separately-running process or managed ser
 
 Three seams keep the stack honest, and each has an executable pin:
 
-1. **REST/WS wire shapes** — `backend/test/journeys/fixtures/*.json` is the single
-   source of truth. `backend/test/journeys/test_contract_fixtures.py` proves the live
+1. **REST/WS wire shapes** — `test/backend/journeys/fixtures/*.json` is the single
+   source of truth. `test/backend/journeys/test_contract_fixtures.py` proves the live
    API produces those shapes; `frontend/src/api/contracts.test.ts` proves `types.ts`
    matches the same files. A serializer change must update both sides in one PR.
 2. **The indicator catalog** — `GET /indicators/` describes every indicator (label,
@@ -129,5 +129,5 @@ Three seams keep the stack honest, and each has an executable pin:
    frontend change.
 3. **Data honesty** — the `synthetic` flag travels with every price series from
    `feeder/providers.py` through alerts, analysis and replay payloads to the UI badges,
-   enforced by `backend/test/journeys/uxspec.py`. No layer may present fabricated
+   enforced by `test/backend/journeys/uxspec.py`. No layer may present fabricated
    fallback data as real market data.

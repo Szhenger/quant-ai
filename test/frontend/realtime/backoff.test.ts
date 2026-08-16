@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reconnectDelayMs } from "./backoff";
+import { reconnectDelayMs } from "../../../frontend/src/realtime/backoff";
 
 describe("reconnectDelayMs", () => {
   it("grows exponentially at the jitter ceiling", () => {

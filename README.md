@@ -31,6 +31,7 @@ with the same promise — nothing assumed beyond CS50x:
 | [`frontend/`](frontend/README.md) | The client: the React + TypeScript single-page app you actually click on. |
 | [`runtime/`](runtime/README.md) | The running instances: Docker Compose stacks (Postgres, Redis, api, worker, beat) and the production blueprint. |
 | [`network/`](network/README.md) | The wire: every protocol between the pieces — DNS, TLS, HTTP, CORS, WebSockets, Redis pub/sub. |
+| [`test/`](test/README.md) | The whole testing suite — backend pytest, frontend vitest, the golden contract fixtures, and the `qtest` runner that selects suites by behavior area. |
 | [`tool/`](tool/README.md) | External dependencies and local-machine helpers (like a Docker-free dev Postgres). |
 
 ---

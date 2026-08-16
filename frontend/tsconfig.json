@@ -14,7 +14,14 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    // The vitest files live outside this package (test/frontend), so bare
+    // imports like "vitest" can't be found by walking up from the test file;
+    // map them back into this package's node_modules for the type-checker.
+    "baseUrl": ".",
+    "paths": {
+      "vitest": ["./node_modules/vitest"]
+    }
   },
-  "include": ["src", "vite.config.ts"]
+  "include": ["src", "vite.config.ts", "../test/frontend"]
 }

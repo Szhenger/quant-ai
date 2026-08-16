@@ -3,8 +3,8 @@ SHELL := /bin/bash
 PY := backend/.venv/bin
 export PATH := /opt/homebrew/bin:$(PATH)
 
-.PHONY: help venv db-init db-start db-stop db-status test migrations-check check \
-        build-frontend test-docker up down ci
+.PHONY: help venv db-init db-start db-stop db-status test test-frontend qtest \
+        migrations-check check build-frontend test-docker up down ci
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -28,6 +28,12 @@ db-status: ## Show local dev Postgres status
 
 test: ## Backend test suite (needs the dev Postgres running)
 	cd backend && ./.venv/bin/pytest -q
+
+test-frontend: ## Frontend vitest suite (test/frontend)
+	cd frontend && npm test
+
+qtest: ## Custom suite runner — `make qtest ARGS="run rest postgres"`
+	./test/qtest $(ARGS)
 
 migrations-check: ## Fail if models drifted from the committed migrations
 	cd backend && DJANGO_SETTINGS_MODULE=config.test_settings \

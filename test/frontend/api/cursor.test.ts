@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { relativizeCursor } from "./cursor";
+import { relativizeCursor } from "../../../frontend/src/api/cursor";
 
 describe("relativizeCursor", () => {
   it("strips scheme, host, and the API base prefix", () => {
