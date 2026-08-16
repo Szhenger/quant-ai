@@ -22,18 +22,18 @@ jobs:
       # Tests run against PostgreSQL (prod parity) with eager Celery +
       # in-memory channels; compose starts the throwaway test-db dependency.
       - name: Run backend test suite
-        run: docker compose -f docker-compose.test.yml run --rm --build test
+        run: docker compose -f runtime/docker-compose.test.yml run --rm --build test
 
       # Reuses the image built above: catches models that drifted from the
       # committed migrations, and any failing Django system check.
       - name: Migration drift + system checks
         run: >
-          docker compose -f docker-compose.test.yml run --rm test
+          docker compose -f runtime/docker-compose.test.yml run --rm test
           sh -c "python manage.py makemigrations --check --dry-run && python manage.py check"
 
       - name: Teardown
         if: always()
-        run: docker compose -f docker-compose.test.yml down -v
+        run: docker compose -f runtime/docker-compose.test.yml down -v
 
   frontend:
     name: Frontend (type-check + build)
@@ -47,13 +47,13 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: console/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        working-directory: console
+        working-directory: frontend
         run: npm ci
 
       # "build" runs tsc first, so this is the type-check and the prod build.
       - name: Type-check and build
-        working-directory: console
+        working-directory: frontend
         run: npm run build
