@@ -1,4 +1,4 @@
-import axios, { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
 import { useAuthStore } from "../store/auth";
 import type { Paginated } from "./types";
 
@@ -71,20 +71,35 @@ api.interceptors.response.use(
 );
 
 /**
- * Follow a paginated endpoint's `next` links until exhausted, so lists are
- * never silently truncated at the server page size. `cap` bounds the walk
- * (cap × 50 items) as a runaway guard; `next` is an absolute URL, which axios
- * uses as-is (the auth/workspace interceptors still apply).
+ * Fetch every page of a LimitOffset-paginated endpoint, so lists are never
+ * silently truncated at the server page size.
+ *
+ * The first response carries `count`, so every remaining page's offset is
+ * known up front — fetch them CONCURRENTLY (one Promise.all) instead of
+ * walking `next` links one round-trip at a time: N pages cost ~2 RTTs, not N.
+ * `cap` bounds the total page requests (cap × server page size items) as a
+ * runaway guard. Offset pages can shift under concurrent writes exactly as
+ * they could during the sequential walk; React Query's background refetches
+ * reconcile either way.
  */
 export async function fetchAllPages<T>(path: string, cap = 10): Promise<T[]> {
-  const out: T[] = [];
-  let url: string | null = path;
-  for (let page = 0; url && page < cap; page++) {
-    const res: AxiosResponse<Paginated<T>> = await api.get<Paginated<T>>(url);
-    out.push(...res.data.results);
-    url = res.data.next;
+  const first = await api.get<Paginated<T>>(path);
+  const { results, count, next } = first.data;
+  const pageSize = results.length;
+  if (!next || pageSize === 0) return results;
+
+  const offsets: number[] = [];
+  for (let o = pageSize; o < count && offsets.length < cap - 1; o += pageSize) {
+    offsets.push(o);
   }
-  return out;
+  const rest = await Promise.all(
+    offsets.map((offset) =>
+      api
+        .get<Paginated<T>>(path, { params: { limit: pageSize, offset } })
+        .then((r) => r.data.results),
+    ),
+  );
+  return results.concat(...rest);
 }
 
 export default api;

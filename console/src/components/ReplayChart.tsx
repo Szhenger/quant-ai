@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { ReplayFire } from "../api/types";
 
 interface ReplayChartProps {
@@ -9,10 +10,10 @@ interface ReplayChartProps {
 
 /**
  * The signal-replay timeline: the price path with a marker at every bar where
- * the condition would have fired. Same dependency-free SVG approach as
- * LineChart, plus the fire overlay.
+ * the condition would have fired. Same dependency-free SVG approach (and same
+ * memoization rationale) as LineChart, plus the fire overlay.
  */
-export default function ReplayChart({ closes, dates, fires, height = 220 }: ReplayChartProps) {
+function ReplayChart({ closes, dates, fires, height = 220 }: ReplayChartProps) {
   const width = 800;
   const padding = { top: 16, right: 16, bottom: 24, left: 48 };
 
@@ -96,3 +97,5 @@ export default function ReplayChart({ closes, dates, fires, height = 220 }: Repl
     </svg>
   );
 }
+
+export default memo(ReplayChart);

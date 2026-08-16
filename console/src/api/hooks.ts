@@ -45,24 +45,46 @@ export const keys = {
 
 // --- Markets -----------------------------------------------------------------
 
-export function useAnalysis(ticker: string, days = 180) {
-  const ws = useWorkspaceId();
-  // Explicit generic: the destructured ({ signal }) queryFn is context-sensitive,
-  // so TS would otherwise let keepPreviousData's generic leak into the data type.
-  return useQuery<MarketAnalysis>({
+/** Shared key + fetcher so the hook and the hover-prefetch stay in lockstep. */
+function analysisQuery(ws: string, ticker: string, days: number) {
+  return {
     queryKey: keys.analysis(ws, ticker, days),
-    queryFn: ({ signal }) =>
+    queryFn: ({ signal }: { signal?: AbortSignal }) =>
       api
         .get<MarketAnalysis>(`/markets/${encodeURIComponent(ticker)}/analysis/`, {
           params: { days },
           signal,
         })
         .then((r) => r.data),
+  };
+}
+
+export function useAnalysis(ticker: string, days = 180) {
+  const ws = useWorkspaceId();
+  // Explicit generic: the destructured ({ signal }) queryFn is context-sensitive,
+  // so TS would otherwise let keepPreviousData's generic leak into the data type.
+  return useQuery<MarketAnalysis>({
+    ...analysisQuery(ws, ticker, days),
     enabled: ticker.length > 0,
     // Keep the previous ticker's chart on screen while the next one loads —
     // no flash of empty state on every watchlist click.
     placeholderData: keepPreviousData,
   });
+}
+
+/**
+ * Latency hiding: warm the analysis cache for a ticker the user is about to
+ * click (watchlist hover/focus). prefetchQuery respects staleTime, so repeated
+ * hovers inside the fresh window are no-ops, and React Query dedupes it
+ * against the real fetch if the click lands mid-flight.
+ */
+export function usePrefetchAnalysis(days = 180) {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return (ticker: string) => {
+    if (!ticker) return;
+    void qc.prefetchQuery({ ...analysisQuery(ws, ticker, days), staleTime: 30_000 });
+  };
 }
 
 export function useWatchlist() {
@@ -166,8 +188,11 @@ export function useMarkRead() {
   return useMutation({
     mutationFn: (id: string) => api.post(`/alerts/${id}/mark-read/`),
     onMutate: async (id) => {
-      await qc.cancelQueries({ queryKey: keys.alerts(ws) });
-      await qc.cancelQueries({ queryKey: keys.unread(ws) });
+      // Independent cancellations — run them concurrently, not back-to-back.
+      await Promise.all([
+        qc.cancelQueries({ queryKey: keys.alerts(ws) }),
+        qc.cancelQueries({ queryKey: keys.unread(ws) }),
+      ]);
       qc.setQueryData<AlertPages>(keys.alerts(ws), (d) => (d ? markOneRead(d, id) : d));
       qc.setQueryData<UnreadCount>(keys.unread(ws), (d) =>
         d ? { unread: Math.max(0, d.unread - 1) } : d,
@@ -190,8 +215,10 @@ export function useMarkAllRead() {
   return useMutation({
     mutationFn: () => api.post("/alerts/mark-all-read/"),
     onMutate: async () => {
-      await qc.cancelQueries({ queryKey: keys.alerts(ws) });
-      await qc.cancelQueries({ queryKey: keys.unread(ws) });
+      await Promise.all([
+        qc.cancelQueries({ queryKey: keys.alerts(ws) }),
+        qc.cancelQueries({ queryKey: keys.unread(ws) }),
+      ]);
       const prev = qc.getQueryData<AlertPages>(keys.alerts(ws));
       // Snapshot only the ids we are about to flip — the rollback un-flips
       // exactly those on whatever the cache holds by then.

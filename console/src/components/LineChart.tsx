@@ -1,3 +1,5 @@
+import { memo } from "react";
+
 interface LineChartProps {
   values: number[];
   labels?: string[];
@@ -7,8 +9,12 @@ interface LineChartProps {
 /**
  * Dependency-free responsive SVG line chart. Uses a fixed viewBox and scales to
  * its container width via CSS. Gracefully handles empty / single-point series.
+ *
+ * Memoized: parent panels re-render on every keystroke, while the chart's
+ * props are identity-stable React Query arrays — memo skips rebuilding the
+ * point strings and hundreds of SVG nodes until the data actually changes.
  */
-export default function LineChart({ values, labels, height = 240 }: LineChartProps) {
+function LineChart({ values, labels, height = 240 }: LineChartProps) {
   const width = 800;
   const padding = { top: 16, right: 16, bottom: 24, left: 48 };
 
@@ -93,3 +99,5 @@ function formatTick(v: number): string {
   if (Math.abs(v) >= 1000) return v.toLocaleString(undefined, { maximumFractionDigits: 0 });
   return v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
+
+export default memo(LineChart);

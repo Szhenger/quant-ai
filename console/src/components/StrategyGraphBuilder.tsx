@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useRef, useState } from "react";
 import ReactFlow, {
   addEdge,
   applyEdgeChanges,
@@ -22,6 +22,7 @@ import type {
 import "reactflow/dist/style.css";
 import api from "../api/client";
 import { extractError } from "../api/errors";
+import { useIndicatorCatalog } from "../api/hooks";
 import type { IndicatorCatalog } from "../api/types";
 
 interface StrategyGraphBuilderProps {
@@ -231,7 +232,9 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
   const [nodes, setNodes] = useState<Node[]>(INITIAL_NODES);
   const [edges, setEdges] = useState<Edge[]>(INITIAL_EDGES);
   const [name, setName] = useState("Graph strategy");
-  const [catalog, setCatalog] = useState<IndicatorCatalog | null>(null);
+  // Shared session-cached catalog — deduped with StrategyForm's consumer.
+  const catalogQuery = useIndicatorCatalog();
+  const catalog = catalogQuery.data ?? null;
   const [deploying, setDeploying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -243,17 +246,6 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
   const [notifyInApp, setNotifyInApp] = useState(true);
   const [notifyEmail, setNotifyEmail] = useState(false);
   const [webhookUrl, setWebhookUrl] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.get<IndicatorCatalog>("/indicators/");
-        setCatalog(res.data);
-      } catch (err) {
-        setError(extractError(err));
-      }
-    })();
-  }, []);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -401,6 +393,11 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
         />
       </div>
 
+      {catalogQuery.isError && (
+        <div className="alert error">
+          Could not load indicators: {extractError(catalogQuery.error)}
+        </div>
+      )}
       {error && <div className="alert error">{error}</div>}
       {success && <div className="alert success">{success}</div>}
 
