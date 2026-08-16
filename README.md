@@ -18,6 +18,23 @@ We are going to earn every result. No formula appears without a reason. When the
 
 ---
 
+## The map of the repository
+
+The tree is organized by **subsystem**, and every folder carries its own README written
+with the same promise — nothing assumed beyond CS50x:
+
+| Folder | What lives there |
+|---|---|
+| [`math/`](math/README.md) | The course: chapters 0–7, the quant math derived from first principles. |
+| [`documentation/`](documentation/README.md) | The engineering chapters (8–10) and the subsystem reference docs — how a formula becomes a trustworthy system. |
+| [`backend/`](backend/README.md) | The server: Python/Django apps, the Celery worker fleet, the WebSocket, the tests. |
+| [`frontend/`](frontend/README.md) | The client: the React + TypeScript single-page app you actually click on. |
+| [`runtime/`](runtime/README.md) | The running instances: Docker Compose stacks (Postgres, Redis, api, worker, beat) and the production blueprint. |
+| [`network/`](network/README.md) | The wire: every protocol between the pieces — DNS, TLS, HTTP, CORS, WebSockets, Redis pub/sub. |
+| [`tool/`](tool/README.md) | External dependencies and local-machine helpers (like a Docker-free dev Postgres). |
+
+---
+
 ## What you'll be able to do
 
 By the last page you will be able to:
@@ -34,25 +51,25 @@ That is genuinely most of what a junior quant researcher and the engineer sittin
 
 ## The syllabus
 
-Read [**`docs/00-preface.md`**](docs/00-preface.md) first — it's five minutes, it sets the notation we use everywhere, and it explains how each chapter is built.
+Read [**`math/00-preface.md`**](math/00-preface.md) first — it's five minutes, it sets the notation we use everywhere, and it explains how each chapter is built.
 
 Then the course proper. Each chapter ends with the same three sections: **In the code** (the exact file and function that implements the idea), a **Worked example** (real numbers), and a **Problem set** (do these — that's how it sticks).
 
 | # | Chapter | The question it answers | Code it unlocks |
 |---|---|---|---|
-| 0 | [Preface](docs/00-preface.md) | How do I read this, and what do I need? | — |
-| 1 | [What is a market?](docs/01-what-is-a-market.md) | What *is* a price, and what does it mean for it to "go up"? | `feeder/providers.py`, `PCT_CHANGE` |
-| 2 | [The statistics of returns](docs/02-statistics-of-returns.md) | If prices are random, what can we possibly know? | `numpy`, sample mean & std |
-| 3 | [The z-score & mean reversion](docs/03-zscore-and-mean-reversion.md) | "This looks unusually cheap." Says who? | `Z_SCORE`, `_zscore_series` |
-| 4 | [Trend & moving averages](docs/04-trend-and-moving-averages.md) | How do you measure a trend without fooling yourself? | `SMA_CROSS`, `_sma`, `_ema` |
-| 5 | [Momentum: RSI & MACD](docs/05-momentum-rsi-macd.md) | Is this move exhausting itself or just getting started? | `RSI`, `MACD_HIST` |
-| 6 | [Volatility & the square root of time](docs/06-volatility.md) | How much does this thing *usually* move, and over what horizon? | `VOLATILITY`, `_volatility_series` |
-| 7 | [Signal vs. noise](docs/07-signal-vs-noise.md) | My rule just fired. Should I believe it? | cooldown, `ai/claude_client.py` |
-| 8 | [From a formula to a system](docs/08-from-math-to-system.md) | How do you turn an equation into a service that runs forever? | the whole backend |
-| 9 | [The API as a contract](docs/09-the-api-contract.md) | How do humans and machines talk to this safely? | `strategies/urls.py`, JWT, WebSockets |
-| 10 | [Concurrency & safety](docs/10-concurrency-and-safety.md) | Why did it send the same alert twice, and how do we make it *never* happen? | `engine/tasks.py` |
+| 0 | [Preface](math/00-preface.md) | How do I read this, and what do I need? | — |
+| 1 | [What is a market?](math/01-what-is-a-market.md) | What *is* a price, and what does it mean for it to "go up"? | `feeder/providers.py`, `PCT_CHANGE` |
+| 2 | [The statistics of returns](math/02-statistics-of-returns.md) | If prices are random, what can we possibly know? | `numpy`, sample mean & std |
+| 3 | [The z-score & mean reversion](math/03-zscore-and-mean-reversion.md) | "This looks unusually cheap." Says who? | `Z_SCORE`, `_zscore_series` |
+| 4 | [Trend & moving averages](math/04-trend-and-moving-averages.md) | How do you measure a trend without fooling yourself? | `SMA_CROSS`, `_sma`, `_ema` |
+| 5 | [Momentum: RSI & MACD](math/05-momentum-rsi-macd.md) | Is this move exhausting itself or just getting started? | `RSI`, `MACD_HIST` |
+| 6 | [Volatility & the square root of time](math/06-volatility.md) | How much does this thing *usually* move, and over what horizon? | `VOLATILITY`, `_volatility_series` |
+| 7 | [Signal vs. noise](math/07-signal-vs-noise.md) | My rule just fired. Should I believe it? | cooldown, `advisor/claude_client.py` |
+| 8 | [From a formula to a system](documentation/08-from-math-to-system.md) | How do you turn an equation into a service that runs forever? | the whole backend |
+| 9 | [The API as a contract](documentation/09-the-api-contract.md) | How do humans and machines talk to this safely? | `engine/urls.py`, JWT, WebSockets |
+| 10 | [Concurrency & safety](documentation/10-concurrency-and-safety.md) | Why did it send the same alert twice, and how do we make it *never* happen? | `engine/tasks.py` |
 
-Practical, in-the-same-voice guides for when you're actually hacking on it: [**`runtime/README.md`**](runtime/README.md) and [**`console/README.md`**](console/README.md).
+Chapters 0–7 live in [`math/`](math/README.md); the engineering chapters 8–10 live in [`documentation/`](documentation/README.md), alongside the reference docs. Practical, in-the-same-voice guides for when you're actually hacking on it: [**`backend/README.md`**](backend/README.md) and [**`frontend/README.md`**](frontend/README.md).
 
 ---
 
@@ -61,21 +78,21 @@ Practical, in-the-same-voice guides for when you're actually hacking on it: [**`
 You do not need the app running to read the course — but it's more fun when the words on the page correspond to numbers on your screen. The fastest path:
 
 ```bash
-docker compose up --build     # postgres, redis, the API (ASGI), a worker, a scheduler
+docker compose -f runtime/docker-compose.yml up --build     # postgres, redis, the API (ASGI), a worker, a scheduler
 ```
 
 Then, in another terminal, the web client:
 
 ```bash
-cd console && npm install && npm run dev     # http://localhost:5173
+cd frontend && npm install && npm run dev     # http://localhost:5173
 ```
 
-Prefer no Docker? [`runtime/README.md`](runtime/README.md) has the local recipe, and everything runs offline against a deterministic **synthetic** market so you never need an API key or an internet connection to learn.
+Prefer no Docker? [`backend/README.md`](backend/README.md) has the local recipe (and [`tool/`](tool/README.md) the Docker-free database), and everything runs offline against a deterministic **synthetic** market so you never need an API key or an internet connection to learn.
 
 Want to see the machinery without the ceremony? The tests are a guided tour:
 
 ```bash
-cd runtime && pip install -r requirements.txt && pytest    # 121 tests, all offline
+cd backend && pip install -r requirements.txt && pytest    # the whole suite, all offline
 ```
 
 ---
@@ -84,4 +101,4 @@ cd runtime && pip install -r requirements.txt && pytest    # 121 tests, all offl
 
 This project started life as something else entirely and was rebuilt to do one thing well. The engineering docs describe **what the code actually does**, not what would be impressive to claim. When we cut a corner, we say so. When a technique has a known failure mode, we show you the failure first and the fix second — because that's the only way you actually learn it.
 
-Turn to [the preface](docs/00-preface.md). Let's begin.
+Turn to [the preface](math/00-preface.md). Let's begin.

@@ -1,7 +1,7 @@
 /**
  * Golden-fixture contract pins — the frontend half of the dual pin.
  *
- * `runtime/test/journeys/fixtures/*.json` is the single source of truth for
+ * `backend/test/journeys/fixtures/*.json` is the single source of truth for
  * the wire shapes. The backend's `test_contract_fixtures.py` proves the live
  * API produces exactly those shapes; THIS file proves `types.ts` matches the
  * very same files — at compile time via the exhaustive `contractKeys` maps
@@ -25,7 +25,7 @@ import type {
   Strategy,
 } from "./types";
 
-const FIXTURE_DIR = new URL("../../../runtime/test/journeys/fixtures/", import.meta.url);
+const FIXTURE_DIR = new URL("../../../backend/test/journeys/fixtures/", import.meta.url);
 
 function load(name: string): Record<string, unknown> {
   const path = fileURLToPath(new URL(`${name}.json`, FIXTURE_DIR));

@@ -185,7 +185,7 @@ Subtract the mean to center it, divide by the std to rescale it into units of "s
 
 ## 2.9 In the code
 
-Open [`runtime/feeder/indicators.py`](../runtime/feeder/indicators.py). The library is built on `numpy` for exactly one reason: it gives us `.mean()` and `.std(ddof=1)` — the sample mean of §2.2 and the Bessel-corrected sample standard deviation of §2.3–2.4 — as fast, correct, one-line primitives, so the indicator code reads like the math.
+Open [`backend/feeder/indicators.py`](../backend/feeder/indicators.py). The library is built on `numpy` for exactly one reason: it gives us `.mean()` and `.std(ddof=1)` — the sample mean of §2.2 and the Bessel-corrected sample standard deviation of §2.3–2.4 — as fast, correct, one-line primitives, so the indicator code reads like the math.
 
 Here is the z-score builder. Ignore the surrounding loop for now (that's Chapter 3's rolling window) and watch the two statistics land on lines that mirror the formulas exactly:
 
@@ -279,7 +279,7 @@ The naïve version is smaller — it *underestimates* the spread, exactly the bi
 
 4. **Linearity and scaling.** A colleague reports returns as *fractions* (`0.02`) but you want them in *percent* (`2`), i.e. you multiply every `x_i` by 100. Using Rules 1 and 2, state exactly what happens to `μ̂`, to `σ̂²`, and to `σ̂` under this rescaling — and confirm your answers are consistent with what you'd get by just recomputing from scratch. Why does this make the *z*-score (§2.8) immune to the choice of units?
 
-5. **In the code.** Read `_zscore_series` in [`indicators.py`](../runtime/feeder/indicators.py). Feed it the six closes `[101, 100, 102, 100, 101, 90]` with `window = 6` and predict the single non-`None` value it returns *before* running it (you may peek ahead to Chapter 3, or just apply §2.2–2.8 directly). Then change `ddof=1` to `ddof=0` in a scratch copy and recompute: does the magnitude of the z-score go up or down, and why does that match the direction of the bias you found in Problem 1?
+5. **In the code.** Read `_zscore_series` in [`indicators.py`](../backend/feeder/indicators.py). Feed it the six closes `[101, 100, 102, 100, 101, 90]` with `window = 6` and predict the single non-`None` value it returns *before* running it (you may peek ahead to Chapter 3, or just apply §2.2–2.8 directly). Then change `ddof=1` to `ddof=0` in a scratch copy and recompute: does the magnitude of the z-score go up or down, and why does that match the direction of the bias you found in Problem 1?
 
 ---
 

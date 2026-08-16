@@ -32,11 +32,11 @@ services:
       retries: 5
 
   api:
-    build: ./runtime
+    build: ../backend
     restart: unless-stopped
     command: sh -c "python manage.py migrate && daphne -b 0.0.0.0 -p 8000 config.asgi:application"
     volumes:
-      - ./runtime:/app
+      - ../backend:/app
     ports:
       - "8000:8000"
     environment: &backend_env
@@ -60,13 +60,13 @@ services:
         condition: service_healthy
 
   worker:
-    build: ./runtime
+    build: ../backend
     # restart matters most here: a crashed worker otherwise stays exited and
     # sweeps/evaluations stop silently while the api healthcheck stays green.
     restart: unless-stopped
     command: celery -A config worker --loglevel=info
     volumes:
-      - ./runtime:/app
+      - ../backend:/app
     environment: *backend_env
     healthcheck:
       test: ["CMD-SHELL", "celery -A config inspect ping -d celery@$$HOSTNAME --timeout 10"]
@@ -81,11 +81,11 @@ services:
         condition: service_healthy
 
   beat:
-    build: ./runtime
+    build: ../backend
     restart: unless-stopped
     command: celery -A config beat --loglevel=info
     volumes:
-      - ./runtime:/app
+      - ../backend:/app
     environment: *backend_env
     depends_on:
       redis:

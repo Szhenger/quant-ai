@@ -79,7 +79,7 @@ Each day, multiply yesterday's price by "1 plus a little random wiggle." Take lo
 
 ## 1.5 In the code
 
-Open [`runtime/feeder/providers.py`](../runtime/feeder/providers.py). A market is this dataclass — a list of closes and their dates, nothing more:
+Open [`backend/feeder/providers.py`](../backend/feeder/providers.py). A market is this dataclass — a list of closes and their dates, nothing more:
 
 ```python
 @dataclass
@@ -104,7 +104,7 @@ for _ in range(days):
 
 Line for line, that's `p_t = p_{t-1} × (1 + shock_t)`. The `drift` is a small average push (Chapter 4's "trend"); `vol` is the size of the noise (Chapter 6's "volatility"). You are looking at the two halves of the golden thread — *slow story plus fast noise* — as two variables in a loop.
 
-Now the percent-change indicator, in [`runtime/feeder/indicators.py`](../runtime/feeder/indicators.py) — §1.2 verbatim:
+Now the percent-change indicator, in [`backend/feeder/indicators.py`](../backend/feeder/indicators.py) — §1.2 verbatim:
 
 ```python
 def _pct_change_series(closes, window):

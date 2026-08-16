@@ -154,7 +154,7 @@ Notice what "crossing" requires: you cannot tell a crossing from a mere positive
 
 ## 4.7 In the code
 
-Open [`runtime/feeder/indicators.py`](../runtime/feeder/indicators.py). Here is the simple moving average — §4.3, a sliding flat average, with the first `window−1` slots left as `None` for the warm-up:
+Open [`backend/feeder/indicators.py`](../backend/feeder/indicators.py). Here is the simple moving average — §4.3, a sliding flat average, with the first `window−1` slots left as `None` for the warm-up:
 
 ```python
 def _sma(closes: List[float], window: int) -> List[Optional[float]]:

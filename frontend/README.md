@@ -3,7 +3,7 @@
 This is the human's window onto the engine. Everything the [backend](../backend/README.md)
 computes — markets, strategies, and live alerts from Chapters 8–10 — is put in front of you
 here: a React + TypeScript single-page app, built with Vite. It talks to the backend through
-the exact contract of [Chapter 9](../math/09-the-api-contract.md), and it holds a live
+the exact contract of [Chapter 9](../documentation/09-the-api-contract.md), and it holds a live
 WebSocket open so alerts arrive the moment they fire.
 
 Best part for a learner: it runs against the **offline synthetic backend**, so you can click
@@ -53,7 +53,7 @@ their local UI state, and the session socket reconnects to the new workspace's c
 ## How it maps to the backend (Chapter 9)
 
 Two files carry almost all the contract logic; read them alongside
-[Chapter 9](../math/09-the-api-contract.md) and it clicks.
+[Chapter 9](../documentation/09-the-api-contract.md) and it clicks.
 
 - **`store/auth.ts`** — the login desk. `register` and `login` call the bare auth endpoints
   (`/auth/register/`, `/auth/token/`) with a plain axios call — no token exists yet, so they
@@ -79,7 +79,7 @@ That interceptor is the client half of the two-checkpoint story in Chapter 9: id
 One socket per session, owned by the app shell (`realtime/useAlertsSocket.ts`), not by any
 panel — so alerts arrive and the sidebar's unread badge ticks up whichever tab you're on.
 The access token rides in the **query string** (a browser can't set headers on a WebSocket),
-exactly as [Chapter 9](../math/09-the-api-contract.md) describes, and the URL is rebuilt at
+exactly as [Chapter 9](../documentation/09-the-api-contract.md) describes, and the URL is rebuilt at
 every (re)connect so a refreshed token is picked up without tearing the socket down.
 
 The raw browser WebSocket reports clean closes but not *half-open* connections — a dead
@@ -115,7 +115,7 @@ proxy: {
 }
 ```
 
-Start the [backend](../backend/README.md) first (or `docker compose up` from the repo root),
+Start the [backend](../backend/README.md) first (or `docker compose -f runtime/docker-compose.yml up` from the repo root),
 then `npm run dev`. Because the default backend serves the **synthetic** market, you can
 register a throwaway account and explore the whole cockpit with no keys and no network.
 
@@ -129,7 +129,7 @@ npm test           # vitest: pure realtime logic + journey sequences + wire-cont
 Two of those test files are part of the cross-stack **UX-invariant framework**:
 
 - `src/api/contracts.test.ts` pins `types.ts` against the golden wire fixtures in
-  `runtime/test/journeys/fixtures/` — the same files the backend's
+  `backend/test/journeys/fixtures/` — the same files the backend's
   `test_contract_fixtures.py` pins its serializers against. Each type has a
   compile-time-exhaustive key map, so adding/removing a field anywhere forces the
   fixture, the serializer test, `types.ts`, and the key map to move in one PR.

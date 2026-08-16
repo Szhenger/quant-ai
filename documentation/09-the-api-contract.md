@@ -42,7 +42,7 @@ QuantAI takes the other road: a **stateless JWT** (JSON Web Token). The trick is
 
 ### The access/refresh split
 
-If a token proves identity and needs no server lookup, one leaks — copied from a log, a browser extension, a shoulder — and the thief *is* you until it expires. Statelessness giveth (no lookup) and taketh away (you can't easily un-issue what you never stored). QuantAI's answer is to hand you **two** tokens, from `runtime/config/settings.py`:
+If a token proves identity and needs no server lookup, one leaks — copied from a log, a browser extension, a shoulder — and the thief *is* you until it expires. Statelessness giveth (no lookup) and taketh away (you can't easily un-issue what you never stored). QuantAI's answer is to hand you **two** tokens, from `backend/config/settings.py`:
 
 ```python
 SIMPLE_JWT = {
@@ -79,7 +79,7 @@ QuantAI carries the active workspace in a custom header on every workspace-scope
 X-Workspace-ID: <workspace uuid>
 ```
 
-And here is the enforcement, the single choke point every scoped request flows through, in `runtime/identity/workspaces.py`:
+And here is the enforcement, the single choke point every scoped request flows through, in `backend/identity/workspaces.py`:
 
 ```python
 WORKSPACE_HEADER = "HTTP_X_WORKSPACE_ID"
@@ -109,7 +109,7 @@ It doesn't just look up the workspace by id — it demands `owner=request.user` 
 
 Here is the full contract. It's worth having the table in front of you, but a table only tells you the *shape* of each promise — this section tells you the *why*. (The living, clickable version is the OpenAPI schema the server generates itself, at `/api/docs/`.)
 
-Everything hangs off base path `/api/v1`, wired up in `runtime/config/urls.py`:
+Everything hangs off base path `/api/v1`, wired up in `backend/config/urls.py`:
 
 ```python
 urlpatterns = [
@@ -200,7 +200,7 @@ The workaround is to smuggle the access token in the **query string** of the con
 ws://<host>/ws/alerts/{workspace_id}/?token=<access-token>
 ```
 
-A small middleware plucks it out before the connection is accepted, in `runtime/engine/ws_auth.py`:
+A small middleware plucks it out before the connection is accepted, in `backend/engine/ws_auth.py`:
 
 ```python
 class JWTAuthMiddleware(BaseMiddleware):
@@ -228,7 +228,7 @@ Same JWT, same signature check (`AccessToken(token)` validates it) — just arri
 
 ### The ownership check, again
 
-Authentication got us a user on the connection. Now the *same* authorization question from §9.4 returns — is this workspace actually yours? — enforced in `AlertConsumer.connect()`, in `runtime/engine/consumers.py`:
+Authentication got us a user on the connection. Now the *same* authorization question from §9.4 returns — is this workspace actually yours? — enforced in `AlertConsumer.connect()`, in `backend/engine/consumers.py`:
 
 ```python
 async def connect(self):
@@ -335,10 +335,10 @@ No polling. The server spoke first, because by now it could — you'd left the l
 
 The map, so you can read the real thing:
 
-- **Routes** — `runtime/config/urls.py` (the base-path table above), `runtime/identity/urls.py` (a DRF router for `workspaces` and `watchlist`), `runtime/engine/urls.py` (a router for `strategies` and `alerts`, plus explicit `indicators/` and `markets/<ticker>/analysis/` paths).
-- **Authorization choke point** — `resolve_active_workspace` in `runtime/identity/workspaces.py`. Every scoped view calls it; it is the single line where tenancy is enforced over HTTP.
-- **WebSocket auth** — `JWTAuthMiddleware` in `runtime/engine/ws_auth.py` (token from the query string), and the `4001/4003` ownership check in `AlertConsumer.connect()` in `runtime/engine/consumers.py`. The socket is routed in `runtime/engine/routing.py` and mounted in `runtime/config/asgi.py`, where HTTP and WebSocket protocols split.
-- **Token policy** — the `SIMPLE_JWT` block in `runtime/config/settings.py` (lifetimes, rotation, blacklist).
+- **Routes** — `backend/config/urls.py` (the base-path table above), `backend/identity/urls.py` (a DRF router for `workspaces` and `watchlist`), `backend/engine/urls.py` (a router for `strategies` and `alerts`, plus explicit `indicators/` and `markets/<ticker>/analysis/` paths).
+- **Authorization choke point** — `resolve_active_workspace` in `backend/identity/workspaces.py`. Every scoped view calls it; it is the single line where tenancy is enforced over HTTP.
+- **WebSocket auth** — `JWTAuthMiddleware` in `backend/engine/ws_auth.py` (token from the query string), and the `4001/4003` ownership check in `AlertConsumer.connect()` in `backend/engine/consumers.py`. The socket is routed in `backend/engine/routing.py` and mounted in `backend/config/asgi.py`, where HTTP and WebSocket protocols split.
+- **Token policy** — the `SIMPLE_JWT` block in `backend/config/settings.py` (lifetimes, rotation, blacklist).
 
 ## 9.10 Worked example: read the contract like a lawyer
 
