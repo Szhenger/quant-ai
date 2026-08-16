@@ -1,0 +1,7 @@
+# Compatibility shim: the pinned CI workflow (.github/workflows/ci.yml) still
+# invokes this root path. The real definition lives in
+# runtime/docker-compose.test.yml. Delete this file (and the `console`
+# symlink) once the workflow is updated to use `-f runtime/docker-compose.test.yml`
+# and `working-directory: frontend`.
+include:
+  - runtime/docker-compose.test.yml
