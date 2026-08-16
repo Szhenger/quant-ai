@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import api from "../api/client";
 import { extractError } from "../api/errors";
 import { useIndicatorCatalog } from "../api/hooks";
+import type { Indicator } from "../api/types";
 
 interface StrategyFormProps {
   onCreated: () => void;
