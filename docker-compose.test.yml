@@ -1,29 +1,7 @@
-# Runs the backend test suite in isolation.
-# Tests run against PostgreSQL (prod parity) with eager Celery + in-memory
-# channels — the throwaway database below is the only service dependency.
-services:
-  test-db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: quantai
-      POSTGRES_PASSWORD: quantai
-      POSTGRES_DB: quantai
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U quantai -d quantai"]
-      interval: 2s
-      timeout: 5s
-      retries: 15
-
-  test:
-    build: ./runtime
-    environment:
-      DJANGO_SETTINGS_MODULE: config.test_settings
-      DB_HOST: test-db
-      # Settings fail fast when the published dev SECRET_KEY is used outside
-      # DEBUG; give the test container its own throwaway key.
-      DJANGO_SECRET_KEY: test-only-secret-key
-      DJANGO_DEBUG: "False"
-    command: sh -c "pytest -q"
-    depends_on:
-      test-db:
-        condition: service_healthy
+# Compatibility shim: the pinned CI workflow (.github/workflows/ci.yml) still
+# invokes this root path. The real definition lives in
+# runtime/docker-compose.test.yml. Delete this file (and the `console`
+# symlink) once the workflow is updated to use `-f runtime/docker-compose.test.yml`
+# and `working-directory: frontend`.
+include:
+  - runtime/docker-compose.test.yml

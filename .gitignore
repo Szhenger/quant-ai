@@ -9,7 +9,7 @@ db.sqlite3
 
 # Env
 .env
-runtime/.env
+backend/.env
 
 # Node / frontend
 node_modules/
@@ -23,8 +23,8 @@ dist/
 .DS_Store
 *.log
 
-# Local dev Postgres cluster (scripts/devdb.sh)
+# Local dev Postgres cluster (tool/devdb.sh)
 .devdb/
 
 # Collected static assets (whitenoise serves these in prod)
-runtime/staticfiles/
+backend/staticfiles/

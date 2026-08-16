@@ -40,7 +40,7 @@ Read left to right, that's a **pipeline**: data flows through a series of stages
 
 Everything starts with prices, and prices come from the outside world, which is the least reliable thing in any system. Yahoo Finance has outages. Your network drops. A ticker gets delisted. If a data hiccup could crash strategy evaluation, then one bad afternoon at Yahoo would silence *everyone's* alerts.
 
-So the data layer is built around a single idea: **degrade, don't crash.** In [`runtime/feeder/providers.py`](../runtime/feeder/providers.py) there are two providers behind one interface — `YFinanceProvider` (real data) and `SyntheticProvider` (the deterministic random walk from [Chapter 1](01-what-is-a-market.md)) — and a wrapper that ties them together:
+So the data layer is built around a single idea: **degrade, don't crash.** In [`backend/feeder/providers.py`](../backend/feeder/providers.py) there are two providers behind one interface — `YFinanceProvider` (real data) and `SyntheticProvider` (the deterministic random walk from [Chapter 1](../math/01-what-is-a-market.md)) — and a wrapper that ties them together:
 
 ```python
 class ResilientProvider(BaseProvider):
@@ -61,7 +61,7 @@ That `try/except` is the whole philosophy in four lines. When the real feed fail
 
 ## 8.4 The COMPUTATION layer — pure functions
 
-Now the math from Chapters 3–6. In [`runtime/feeder/indicators.py`](../runtime/feeder/indicators.py), every indicator is a **pure function**: it takes a list of closes and some parameters, and it returns numbers. No database. No network. No clock. No "side effects."
+Now the math from Chapters 3–6. In [`backend/feeder/indicators.py`](../backend/feeder/indicators.py), every indicator is a **pure function**: it takes a list of closes and some parameters, and it returns numbers. No database. No network. No clock. No "side effects."
 
 ```python
 def _zscore_series(closes, window):
@@ -80,7 +80,7 @@ The golden thread again: the computation layer is where the *math* lives, and ke
 
 A formula is stateless. A product has to *remember* — remember your rules while you're offline, remember which alerts already fired, remember whose data is whose. That memory is the database, and in Django it's shaped by **models**. Three matter here.
 
-**`Workspace`** — the isolation boundary. From [`runtime/identity/models.py`](../runtime/identity/models.py):
+**`Workspace`** — the isolation boundary. From [`backend/identity/models.py`](../backend/identity/models.py):
 
 ```python
 class Workspace(models.Model):
@@ -91,13 +91,13 @@ class Workspace(models.Model):
     owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, ...)
 ```
 
-**`Strategy`** — a saved rule, from [`runtime/engine/models.py`](../runtime/engine/models.py). It is exactly the pipeline, frozen as columns: which `ticker`, which `indicator`, which `operator` and `threshold`, whether `ai_enabled`, which delivery channels, plus the scheduling bookkeeping (`poll_interval_minutes`, `cooldown_minutes`, `last_evaluated_at`, `last_triggered_at`). Every field is a decision the pipeline will later read back.
+**`Strategy`** — a saved rule, from [`backend/engine/models.py`](../backend/engine/models.py). It is exactly the pipeline, frozen as columns: which `ticker`, which `indicator`, which `operator` and `threshold`, whether `ai_enabled`, which delivery channels, plus the scheduling bookkeeping (`poll_interval_minutes`, `cooldown_minutes`, `last_evaluated_at`, `last_triggered_at`). Every field is a decision the pipeline will later read back.
 
 **`Alert`** — a fired event. One row per time a strategy's conditions were met. It records the value that fired it, the AI's rationale, and — crucially — a `delivery` JSON field recording what happened on each channel.
 
 Now, the big idea hiding in `Workspace`. **Multi-tenancy** means many customers ("tenants") share one running system and one database, but each must see *only their own data*. There is no separate database per user — that wouldn't scale to a thousand users. Instead, every row carries a `workspace` foreign key, and isolation is a *discipline*: **every query is scoped to the caller's workspace.**
 
-Where does the system learn *which* workspace you are? From a request header. In [`runtime/identity/workspaces.py`](../runtime/identity/workspaces.py):
+Where does the system learn *which* workspace you are? From a request header. In [`backend/identity/workspaces.py`](../backend/identity/workspaces.py):
 
 ```python
 WORKSPACE_HEADER = "HTTP_X_WORKSPACE_ID"
@@ -112,7 +112,7 @@ def resolve_active_workspace(request) -> Workspace:
         raise NotFound("Workspace not found or not owned by the current user.")
 ```
 
-Look closely at that `.get(id=workspace_id, owner=request.user)`. It doesn't just look up the workspace you named — it demands that *you own it*. If you send someone else's workspace ID, you get a 404, not their strategies. And then every list view scopes through the resolved workspace, e.g. in [`runtime/engine/views.py`](../runtime/engine/views.py):
+Look closely at that `.get(id=workspace_id, owner=request.user)`. It doesn't just look up the workspace you named — it demands that *you own it*. If you send someone else's workspace ID, you get a 404, not their strategies. And then every list view scopes through the resolved workspace, e.g. in [`backend/engine/views.py`](../backend/engine/views.py):
 
 ```python
 return Strategy.objects.filter(workspace=workspace)
@@ -128,7 +128,7 @@ Here's a tempting shortcut a beginner reaches for: "When the user opens the page
 
 Both are wrong, and the reason is a hard fact about HTTP: **a web request must return in milliseconds.** A browser (and every proxy between it and your server) will give up after a few seconds. A user waiting on a spinner is a user leaving. But a *market watch* is the opposite of a fast request — it runs **forever**, on a clock, whether or not anyone is looking at the page. You cannot pin an infinite, clock-driven job onto a request that must finish before the user blinks. They live on different timescales.
 
-So you need a component whose entire job is the clock: a **scheduler**. Ours is **Celery Beat**, and its instruction is one entry in [`runtime/config/settings.py`](../runtime/config/settings.py):
+So you need a component whose entire job is the clock: a **scheduler**. Ours is **Celery Beat**, and its instruction is one entry in [`backend/config/settings.py`](../backend/config/settings.py):
 
 ```python
 CELERY_BEAT_SCHEDULE = {
@@ -145,7 +145,7 @@ Every 60 seconds, no matter what, Beat kicks off one function: `sweep_due_strate
 
 `sweep_due_strategies` finds the strategies that are due — and then what? It could evaluate them right there in a loop. But imagine 5,000 due strategies, each needing a price fetch and maybe a slow AI call. Beat would be stuck for minutes, miss its next tick, and any single hung ticker would block all the rest. Back to the blast-radius problem.
 
-The fix is a second separation: the scheduler decides *what to do*, but *doing it* happens somewhere else, through a **task queue**. Beat doesn't run the work; it *enqueues* it. Look at the last line of the sweep loop in [`runtime/engine/tasks.py`](../runtime/engine/tasks.py):
+The fix is a second separation: the scheduler decides *what to do*, but *doing it* happens somewhere else, through a **task queue**. Beat doesn't run the work; it *enqueues* it. Look at the last line of the sweep loop in [`backend/engine/tasks.py`](../backend/engine/tasks.py):
 
 ```python
 if claimed:
@@ -163,7 +163,7 @@ This is the **producer/consumer** pattern: Beat produces work, workers consume i
 
 ## 8.8 The DELIVERY layer — separated on purpose
 
-A worker runs `evaluate_strategy`, the condition holds, the AI blesses it, an `Alert` row is born. The user still doesn't know. **Delivery** is its own final stage, in [`runtime/engine/delivery.py`](../runtime/engine/delivery.py), and it fans out across three channels:
+A worker runs `evaluate_strategy`, the condition holds, the AI blesses it, an `Alert` row is born. The user still doesn't know. **Delivery** is its own final stage, in [`backend/engine/delivery.py`](../backend/engine/delivery.py), and it fans out across three channels:
 
 ```python
 def deliver_alert(alert, strategy) -> dict:
@@ -185,7 +185,7 @@ Why is delivery a separate layer from evaluation at all? Because *deciding an al
 
 ## 8.9 In the code
 
-Two functions carry the spine of this chapter. First, the scheduler's sweep — the thing Beat calls every 60 seconds — from [`runtime/engine/tasks.py`](../runtime/engine/tasks.py):
+Two functions carry the spine of this chapter. First, the scheduler's sweep — the thing Beat calls every 60 seconds — from [`backend/engine/tasks.py`](../backend/engine/tasks.py):
 
 ```python
 @shared_task
@@ -243,7 +243,7 @@ def _run_evaluation(strategy_id: str):
     return {"status": "alerted", "alert_id": str(alert.id), "value": value}
 ```
 
-(That's a lightly-trimmed reading; the real function has the safety machinery Chapter 10 dissects line by line.) Every stage from §8.2 is right there, in order, each a call into a different layer. The function *reads like the pipeline sentence* — that's separation of concerns paying off. And here's the scheduler's marching order once more, the config that starts the whole clock, from [`runtime/config/settings.py`](../runtime/config/settings.py):
+(That's a lightly-trimmed reading; the real function has the safety machinery Chapter 10 dissects line by line.) Every stage from §8.2 is right there, in order, each a call into a different layer. The function *reads like the pipeline sentence* — that's separation of concerns paying off. And here's the scheduler's marching order once more, the config that starts the whole clock, from [`backend/config/settings.py`](../backend/config/settings.py):
 
 ```python
 CELERY_BEAT_SCHEDULE = {
@@ -258,15 +258,15 @@ CELERY_BEAT_SCHEDULE = {
 
 Let's trace a single strategy through every file, so the layers stop being abstract.
 
-1. **Creation (persistence).** You POST to create a strategy: *"AAPL, 20-day z-score, `<`, −2, AI on, notify in-app and email."* The request carries your `X-Workspace-ID` header; [`core/workspaces.py`](../runtime/identity/workspaces.py) resolves and *authorizes* your workspace, and a `Strategy` row is written by the view in [`strategies/views.py`](../runtime/engine/views.py). Its `last_evaluated_at` is `None`. The POST returns in milliseconds. **Nothing is computed yet** — and §8.11 asks you to defend that choice.
+1. **Creation (persistence).** You POST to create a strategy: *"AAPL, 20-day z-score, `<`, −2, AI on, notify in-app and email."* The request carries your `X-Workspace-ID` header; [`core/workspaces.py`](../backend/identity/workspaces.py) resolves and *authorizes* your workspace, and a `Strategy` row is written by the view in [`strategies/views.py`](../backend/engine/views.py). Its `last_evaluated_at` is `None`. The POST returns in milliseconds. **Nothing is computed yet** — and §8.11 asks you to defend that choice.
 
-2. **A tick (scheduling).** Up to 60 seconds later, Celery Beat fires `sweep_due_strategies` ([`engine/tasks.py`](../runtime/engine/tasks.py)). Your strategy has `last_evaluated_at is None`, so it's due. The sweep claims it and calls `evaluate_strategy.delay("...")` — a message onto the Redis queue.
+2. **A tick (scheduling).** Up to 60 seconds later, Celery Beat fires `sweep_due_strategies` ([`engine/tasks.py`](../backend/engine/tasks.py)). Your strategy has `last_evaluated_at is None`, so it's due. The sweep claims it and calls `evaluate_strategy.delay("...")` — a message onto the Redis queue.
 
 3. **Pickup (execution).** A free worker pulls the message and runs `evaluate_strategy` → `_run_evaluation`.
 
-4. **Prices (data).** `get_provider().history("AAPL", days=...)` returns 40-ish closes — from Yahoo if it's up, from the synthetic fallback if not ([`feeder/providers.py`](../runtime/feeder/providers.py)).
+4. **Prices (data).** `get_provider().history("AAPL", days=...)` returns 40-ish closes — from Yahoo if it's up, from the synthetic fallback if not ([`feeder/providers.py`](../backend/feeder/providers.py)).
 
-5. **The number (computation).** `compute_indicator("Z_SCORE", closes, {"window": 20})` calls the pure `_zscore_series` ([`feeder/indicators.py`](../runtime/feeder/indicators.py)) and returns, say, `value = −2.31`.
+5. **The number (computation).** `compute_indicator("Z_SCORE", closes, {"window": 20})` calls the pure `_zscore_series` ([`feeder/indicators.py`](../backend/feeder/indicators.py)) and returns, say, `value = −2.31`.
 
 6. **The condition.** `evaluate_condition("<", −2.31, ..., −2.0)` → `True`. It cleared the quant gate.
 
@@ -274,7 +274,7 @@ Let's trace a single strategy through every file, so the layers stop being abstr
 
 8. **The record (persistence).** Inside `transaction.atomic()`, an `Alert` row is created — scoped to *your* workspace — and `last_triggered_at` is stamped, together, atomically.
 
-9. **The knock on the door (delivery).** `deliver_alert(alert, strategy)` ([`strategies/delivery.py`](../runtime/engine/delivery.py)) pushes over the WebSocket (your browser pops a toast) and sends the email. Each result is recorded in `alert.delivery`.
+9. **The knock on the door (delivery).** `deliver_alert(alert, strategy)` ([`strategies/delivery.py`](../backend/engine/delivery.py)) pushes over the WebSocket (your browser pops a toast) and sends the email. Each result is recorded in `alert.delivery`.
 
 Nine steps, six files, five layers — and *you* did none of it. That's the difference between a formula and a system.
 
@@ -294,4 +294,4 @@ Nine steps, six files, five layers — and *you* did none of it. That's the diff
 
 ---
 
-Previous: [Chapter 7 — Signal vs. noise](07-signal-vs-noise.md) · Next: the pipeline is only as good as the door people knock on. How do humans and machines talk to this system *safely* — tokens, permissions, real-time sockets? That's [Chapter 9 — The API as a contract](09-the-api-contract.md).
+Previous: [Chapter 7 — Signal vs. noise](../math/07-signal-vs-noise.md) · Next: the pipeline is only as good as the door people knock on. How do humans and machines talk to this system *safely* — tokens, permissions, real-time sockets? That's [Chapter 9 — The API as a contract](09-the-api-contract.md).

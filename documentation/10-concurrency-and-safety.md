@@ -27,7 +27,7 @@ If two runners both **read** before either **writes**, they both decide based on
 
 ## 10.2 The bug, as a timeline
 
-Let's watch the duplicate alert happen. Strategy `X` fires when its condition holds; it has a 60-minute cooldown ([Chapter 7](07-signal-vs-noise.md)) so it shouldn't alert more than once an hour. Here is the naïve pipeline — no claim, no lock — with two things going wrong at once.
+Let's watch the duplicate alert happen. Strategy `X` fires when its condition holds; it has a 60-minute cooldown ([Chapter 7](../math/07-signal-vs-noise.md)) so it shouldn't alert more than once an hour. Here is the naïve pipeline — no claim, no lock — with two things going wrong at once.
 
 ```
 t = 0s    Beat sweep #1 runs. Strategy X is due (last_evaluated_at is old).
@@ -67,7 +67,7 @@ The fix is a discipline with a name: **exactly once.** Not at-least-once (that's
 
 Kill the first race: stop two sweeps from enqueuing the same strategy. The naïve sweep does read-modify-write across two statements — *read* the strategy, then (much later) *write* `last_evaluated_at`. The gap between them is the vulnerability.
 
-The fix collapses read and write into **one atomic database operation**: a conditional `UPDATE`. From [`runtime/engine/tasks.py`](../runtime/engine/tasks.py):
+The fix collapses read and write into **one atomic database operation**: a conditional `UPDATE`. From [`backend/engine/tasks.py`](../backend/engine/tasks.py):
 
 ```python
         # Atomically claim: only enqueue if THIS row still has the last_evaluated_at
@@ -123,7 +123,7 @@ Everything about this is deliberate. Let's take it apart.
 
 **`cache.add` is atomic — it's Redis `SET key value NX`.** The `NX` flag means "set **only if** the key does **N**ot e**X**ist." Redis performs the test ("does it exist?") and the set ("write it") as one indivisible operation. So if fifty workers call `cache.add` on the same key at the same microsecond, Redis hands `True` to **exactly one** of them and `False` to the other forty-nine. That is a **test-and-set**, the atomic heartbeat of every lock. The winner enters `_run_evaluation`; everyone else hits `return {"status": "locked", ...}` and no-ops. Notice this is the *same idea* as the CAS in Fix 1 — "act only if the state is what I expect, atomically" — just wearing a different hat (a cache key instead of a row).
 
-**Why the cache MUST be shared (Redis), not per-process.** A lock only works if all contenders can see it. Django's `LocMemCache` lives in one process's memory — Worker 2 literally cannot see a key Worker 1 set. That would make the lock invisible across the fleet and therefore no lock at all. This is spelled out, as a warning, right in [`runtime/config/settings.py`](../runtime/config/settings.py):
+**Why the cache MUST be shared (Redis), not per-process.** A lock only works if all contenders can see it. Django's `LocMemCache` lives in one process's memory — Worker 2 literally cannot see a key Worker 1 set. That would make the lock invisible across the fleet and therefore no lock at all. This is spelled out, as a warning, right in [`backend/config/settings.py`](../backend/config/settings.py):
 
 ```python
 # --- Cache (shared across api/worker/beat — backs the per-strategy eval lock) -
@@ -148,7 +148,7 @@ Two holes plugged. One left, and it's about *crashes*, not concurrency. When the
 1. Create the `Alert` row.
 2. Stamp `last_triggered_at = now` (which arms the cooldown).
 
-Suppose we did them as two separate statements and the process died *between* them: an `Alert` exists, but `last_triggered_at` was never stamped. On the next evaluation the cooldown check sees `last_triggered_at` unchanged and — fires **again.** A crash at the wrong instant becomes a duplicate alert. We need both writes to be **all-or-nothing**, and that is exactly what a **transaction** guarantees. From [`runtime/engine/tasks.py`](../runtime/engine/tasks.py):
+Suppose we did them as two separate statements and the process died *between* them: an `Alert` exists, but `last_triggered_at` was never stamped. On the next evaluation the cooldown check sees `last_triggered_at` unchanged and — fires **again.** A crash at the wrong instant becomes a duplicate alert. We need both writes to be **all-or-nothing**, and that is exactly what a **transaction** guarantees. From [`backend/engine/tasks.py`](../backend/engine/tasks.py):
 
 ```python
         # S2: create the alert AND stamp the trigger in one transaction, so a crash
@@ -205,7 +205,7 @@ Pull any one and a duplicate (or a wedged strategy, or an orphaned alert) creeps
 
 ## 10.7 In the code — the regression test
 
-Concurrency bugs are famously hard to test — you can't reliably make two threads collide on cue. The trick the suite uses is to **simulate the collision**: seize the shared resource yourself, then prove the code no-ops instead of double-firing. From [`runtime/test/test_evaluation.py`](../runtime/test/test_evaluation.py):
+Concurrency bugs are famously hard to test — you can't reliably make two threads collide on cue. The trick the suite uses is to **simulate the collision**: seize the shared resource yourself, then prove the code no-ops instead of double-firing. From [`backend/test/test_evaluation.py`](../backend/test/engine/test_evaluation.py):
 
 ```python
 def test_lock_prevents_concurrent_evaluation(workspace):

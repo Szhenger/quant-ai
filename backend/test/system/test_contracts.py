@@ -1,6 +1,6 @@
 """Executable FE<->BE contract pins.
 
-Each test asserts a response shape that console/src/api/types.ts declares —
+Each test asserts a response shape that frontend/src/api/types.ts declares —
 key sets, envelope fields, nullability, auth semantics — so a backend change
 that would break the frontend fails CI here instead of in production. Update
 types.ts and these pins together, deliberately.
@@ -16,7 +16,7 @@ from engine.tasks import evaluate_strategy
 
 pytestmark = pytest.mark.django_db
 
-# Mirrors `Strategy` in console/src/api/types.ts.
+# Mirrors `Strategy` in frontend/src/api/types.ts.
 STRATEGY_FIELDS = {
     "id", "name", "ticker", "indicator", "params", "operator", "threshold",
     "condition", "condition_summary",
@@ -27,7 +27,7 @@ STRATEGY_FIELDS = {
     "created_at", "updated_at",
 }
 
-# Mirrors `Alert` in console/src/api/types.ts.
+# Mirrors `Alert` in frontend/src/api/types.ts.
 ALERT_FIELDS = {
     "id", "strategy", "strategy_name", "ticker", "indicator", "operator",
     "threshold", "metric_value", "ai_used", "ai_rationale", "ai_confidence",
@@ -35,19 +35,19 @@ ALERT_FIELDS = {
     "created_at",
 }
 
-# Mirrors `ReplayResult` in console/src/api/types.ts.
+# Mirrors `ReplayResult` in frontend/src/api/types.ts.
 REPLAY_FIELDS = {
     "strategy_id", "ticker", "condition", "provider", "synthetic",
     "cooldown_bars", "bars", "fire_count", "fires", "dates", "closes",
 }
 
-# Mirrors `MarketAnalysis` in console/src/api/types.ts.
+# Mirrors `MarketAnalysis` in frontend/src/api/types.ts.
 ANALYSIS_FIELDS = {
     "ticker", "provider", "synthetic", "dates", "closes",
     "latest_price", "indicators",
 }
 
-# Mirrors `EvaluateResult.status` in console/src/api/types.ts (plus the
+# Mirrors `EvaluateResult.status` in frontend/src/api/types.ts (plus the
 # backend-only statuses the union's string fallback covers).
 EVALUATE_STATUSES = {
     "alerted", "quant_not_met", "cooldown", "ai_suppressed", "error",

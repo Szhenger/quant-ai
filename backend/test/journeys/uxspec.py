@@ -2,14 +2,14 @@
 
 Three pieces:
 
-* ``ConsoleClient`` — drives the API exactly the way ``console/src/api/client.ts``
+* ``ConsoleClient`` — drives the API exactly the way ``frontend/src/api/client.ts``
   does (Bearer access token + ``X-Workspace-ID`` header), so journey tests read
   like a user session, not like endpoint pokes.
 
 * ``load_fixture`` / ``assert_same_shape`` — the golden contract fixtures in
   ``fixtures/*.json`` are the single wire-format source of truth shared with the
   frontend: ``test_contract_fixtures.py`` proves the live API matches them
-  key-for-key, and ``console/src/api/contracts.test.ts`` proves ``types.ts``
+  key-for-key, and ``frontend/src/api/contracts.test.ts`` proves ``types.ts``
   matches the very same files. A shape change therefore fails one side until
   BOTH are updated together, deliberately.
 
@@ -40,7 +40,7 @@ def assert_same_shape(actual, expected, path="$"):
         assert not missing and not extra, (
             f"{path}: contract drift — missing keys {sorted(missing)}, "
             f"unexpected keys {sorted(extra)}. Update fixtures/*.json AND "
-            f"console/src/api/types.ts (+ contracts.test.ts) together."
+            f"frontend/src/api/types.ts (+ contracts.test.ts) together."
         )
         for key, value in expected.items():
             if isinstance(value, (dict, list)):

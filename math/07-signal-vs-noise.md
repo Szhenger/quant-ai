@@ -126,7 +126,7 @@ Same 17%, now as a count you can see. The **190 false alarms swamp the 40 true o
 
 The first defense is almost embarrassingly simple, and it attacks a specific kind of false alert. Suppose your condition is `z-score < −2`, and the stock stays cheap for a week. The strategy is evaluated every few minutes. Without protection, it would fire **on every single evaluation** — hundreds of identical alerts for *one* underlying event. That's not new evidence; it's the same evidence, stuttered.
 
-The **cooldown** suppresses re-alerts within a time window. Once a strategy fires, it goes quiet for `cooldown_minutes` before it is allowed to fire again. In [`runtime/engine/tasks.py`](../runtime/engine/tasks.py), inside `_run_evaluation`, right after the quant condition passes:
+The **cooldown** suppresses re-alerts within a time window. Once a strategy fires, it goes quiet for `cooldown_minutes` before it is allowed to fire again. In [`backend/engine/tasks.py`](../backend/engine/tasks.py), inside `_run_evaluation`, right after the quant condition passes:
 
 ```python
 # Respect the cooldown so a persistent condition doesn't spam the user.
@@ -139,7 +139,7 @@ if strategy.last_triggered_at and (now - strategy.last_triggered_at) < timedelta
 
 Read it plainly: *if we fired recently — less than `cooldown_minutes` ago — record the evaluation but do not alert again.* `strategy.last_triggered_at` is the timestamp of the last real alert; `Strategy.cooldown_minutes` is the user-configured quiet window. This is **deduplication in time**: collapsing one persistent real-world condition into one alert instead of a hundred.
 
-> **Short: two different "dedup"s — don't confuse them.** The cooldown dedupes *across time* — the same condition staying true for a while should tell you *once*. That is a different problem from dedupe *across concurrency* — two workers evaluating the *same* strategy at the *same instant* and both trying to alert. That second problem (locks, atomic claims, "exactly once") is real and subtle and gets its own treatment in [Chapter 10 — Concurrency & safety](10-concurrency-and-safety.md). Here we only mean: *don't re-tell me the same story every minute.*
+> **Short: two different "dedup"s — don't confuse them.** The cooldown dedupes *across time* — the same condition staying true for a while should tell you *once*. That is a different problem from dedupe *across concurrency* — two workers evaluating the *same* strategy at the *same instant* and both trying to alert. That second problem (locks, atomic claims, "exactly once") is real and subtle and gets its own treatment in [Chapter 10 — Concurrency & safety](../documentation/10-concurrency-and-safety.md). Here we only mean: *don't re-tell me the same story every minute.*
 
 The cooldown doesn't touch precision directly — a persistent *false* alarm is still false. What it does is stop one event, true or false, from *multiplying*. It makes each alert correspond to (at most) one real-world occurrence, which is the precondition for the second, sharper defense to mean anything.
 
@@ -195,7 +195,7 @@ Precision climbs from **17% → 46%** just by demanding a second independent yes
 
 > **Short: independence is the load-bearing word.** The multiplication `0.2 × 0.2 = 0.04` only holds if the two checks fail *independently*. If the AI just re-derived the same z-score from the same prices, it would fail on exactly the same days as the quant rule — zero new information, no precision gain. The AI helps *because* it reads something else (news, context) that the price series doesn't contain. Stacking two checks that make correlated mistakes buys you almost nothing; the value is entirely in their *independence*.
 
-And the honest engineering, right there in the code: this only works when there's an LLM to call. With no API key, the system doesn't pretend. Open [`runtime/advisor/claude_client.py`](../runtime/advisor/claude_client.py) — the very first thing `ClaudeClient.assess` does:
+And the honest engineering, right there in the code: this only works when there's an LLM to call. With no API key, the system doesn't pretend. Open [`backend/advisor/claude_client.py`](../backend/advisor/claude_client.py) — the very first thing `ClaudeClient.assess` does:
 
 ```python
 if not self.enabled:
@@ -258,4 +258,4 @@ P(real | fired) = P(fired | real) · P(real) / P(fired)
 
 ---
 
-Previous: [Chapter 6 — Volatility & the square root of time](06-volatility.md) · Next: we've built the math and learned to doubt it — now we turn a formula into a service that runs forever, on time, and exactly once. [Chapter 8 — From a formula to a system](08-from-math-to-system.md).
+Previous: [Chapter 6 — Volatility & the square root of time](06-volatility.md) · Next: we've built the math and learned to doubt it — now we turn a formula into a service that runs forever, on time, and exactly once. [Chapter 8 — From a formula to a system](../documentation/08-from-math-to-system.md).
