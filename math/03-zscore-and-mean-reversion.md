@@ -96,7 +96,7 @@ The threshold operators (`<`, `>`, `<=`, `>=`) use only `value`. The crossover o
 
 ## 3.7 In the code
 
-Open [`runtime/feeder/indicators.py`](../runtime/feeder/indicators.py). First, the z-score itself — the rolling window of §3.3, the two Chapter-2 statistics, and the flat-window guard, all in six lines:
+Open [`backend/feeder/indicators.py`](../backend/feeder/indicators.py). First, the z-score itself — the rolling window of §3.3, the two Chapter-2 statistics, and the flat-window guard, all in six lines:
 
 ```python
 def _zscore_series(closes: List[float], window: int) -> List[Optional[float]]:

@@ -99,7 +99,7 @@ There's a deeper reason the disagreement isn't just noise. Momentum and mean rev
 
 ## 5.5 In the code
 
-Open [`runtime/feeder/indicators.py`](../runtime/feeder/indicators.py). Here is the RSI, matching §5.2 step for step — the gains/losses split, the `rsi_val` rescaling with its `avg_loss == 0 → 100` short-circuit, the seed average over the first `period` changes, and the Wilder recurrence:
+Open [`backend/feeder/indicators.py`](../backend/feeder/indicators.py). Here is the RSI, matching §5.2 step for step — the gains/losses split, the `rsi_val` rescaling with its `avg_loss == 0 → 100` short-circuit, the seed average over the first `period` changes, and the Wilder recurrence:
 
 ```python
 def _rsi_series(closes: List[float], period: int) -> List[Optional[float]]:

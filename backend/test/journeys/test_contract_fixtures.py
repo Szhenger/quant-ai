@@ -3,7 +3,7 @@
 ``fixtures/*.json`` is the single source of truth for the wire shapes the
 console depends on. This module proves the LIVE API still produces exactly
 those shapes (key-for-key, at every nesting level); the frontend's
-``console/src/api/contracts.test.ts`` proves ``types.ts`` matches the very
+``frontend/src/api/contracts.test.ts`` proves ``types.ts`` matches the very
 same files at compile time.
 
 The loop this creates: change a serializer → this fails → you update the

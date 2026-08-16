@@ -3,7 +3,7 @@ services:
   - type: web
     name: quantai-api
     runtime: python
-    rootDir: runtime
+    rootDir: backend
     buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
     startCommand: "python manage.py migrate && daphne -b 0.0.0.0 -p $PORT config.asgi:application"
     # Deploys only go live once the DB and cache answer from inside the app.
@@ -43,7 +43,7 @@ services:
   - type: worker
     name: quantai-worker
     runtime: python
-    rootDir: runtime
+    rootDir: backend
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A config worker --loglevel=info"
     envVars:
@@ -88,7 +88,7 @@ services:
   - type: worker
     name: quantai-beat
     runtime: python
-    rootDir: runtime
+    rootDir: backend
     buildCommand: "pip install -r requirements.txt"
     startCommand: "celery -A config beat --loglevel=info"
     envVars:
@@ -125,7 +125,7 @@ services:
   - type: web
     name: quantai-frontend
     runtime: static
-    rootDir: console
+    rootDir: frontend
     buildCommand: "npm install && npm run build"
     staticPublishPath: dist
     envVars:
