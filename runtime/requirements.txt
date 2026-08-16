@@ -3,7 +3,9 @@
 # ==========================================
 
 # --- Web / API gateway ---
-Django>=5.0,<5.2
+# 5.2 LTS: the 5.1 line is end-of-life and ships known CVEs (pip-audit flags
+# six on 5.1.15, all fixed in >=5.2.16).
+Django>=5.2.16,<6.0
 djangorestframework>=3.15
 djangorestframework-simplejwt>=5.3
 django-cors-headers>=4.3
