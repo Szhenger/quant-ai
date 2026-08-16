@@ -25,6 +25,8 @@ PUBLIC_ROUTES = {
     "register",           # account creation
     "token_obtain_pair",  # login
     "token_refresh",      # session renewal (the refresh token IS the credential)
+    "logout",             # deliberate AllowAny: revokes the submitted refresh
+                          # token, and must work after the access token expired
 }
 
 # Non-API surfaces the sweep ignores.
