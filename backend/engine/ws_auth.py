@@ -1,22 +1,31 @@
 """JWT authentication middleware for WebSocket connections.
 
-The browser can't set Authorization headers on a WebSocket, so the access token
-is passed as a ``?token=`` query parameter. This resolves it to a user and puts
-it on ``scope['user']`` (AnonymousUser on any failure); the consumer then checks
-workspace ownership.
-"""
-from urllib.parse import parse_qs
+The browser can't set Authorization headers on a WebSocket, so the access
+token rides in the ``Sec-WebSocket-Protocol`` header: the client offers the
+subprotocols ``["quantai.v1", "quantai.token.<jwt>"]`` and the consumer
+accepts ``quantai.v1``. Unlike a ``?token=`` query parameter, a request
+header is not written to proxy/load-balancer access logs, APM traces, or
+browser history. (A JWT is unpadded base64url + dots — all valid RFC 6455
+subprotocol token characters.)
 
+This middleware resolves the offered token to a user on ``scope['user']``
+(AnonymousUser on any failure); the consumer then checks workspace ownership.
+"""
 from channels.db import database_sync_to_async
 from channels.middleware import BaseMiddleware
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 
+TOKEN_SUBPROTOCOL_PREFIX = "quantai.token."
+
 
 class JWTAuthMiddleware(BaseMiddleware):
     async def __call__(self, scope, receive, send):
-        query = parse_qs(scope.get("query_string", b"").decode())
-        token = (query.get("token") or [None])[0]
+        token = None
+        for offered in scope.get("subprotocols") or []:
+            if offered.startswith(TOKEN_SUBPROTOCOL_PREFIX):
+                token = offered[len(TOKEN_SUBPROTOCOL_PREFIX):]
+                break
         scope["user"] = await self._authenticate(token)
         return await super().__call__(scope, receive, send)
 

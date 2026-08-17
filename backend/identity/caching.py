@@ -77,7 +77,10 @@ def cached_compute(key: str, ttl, compute, *, wait_budget: float = 0.0):
     flight_key = f"{key}:flight"
     # cache.add is atomic (Redis SET NX). The token makes the release owned:
     # if our compute outlives FLIGHT_LOCK_TTL and someone else has since
-    # claimed the flight, we must not delete *their* lock.
+    # claimed the flight, we must not delete *their* lock. Best-effort only —
+    # the get/delete below is not a single atomic compare-and-delete, so a
+    # claimant that slips in between them can still lose its lock; the cost is
+    # one extra duplicate computation, which this module tolerates by design.
     token = uuid.uuid4().hex
     if cache.add(flight_key, token, FLIGHT_LOCK_TTL):
         try:

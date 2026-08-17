@@ -6,6 +6,7 @@ import {
   useMarkRead,
   useUnreadCount,
 } from "../api/hooks";
+import { flattenPages } from "../realtime/merge";
 import { useRealtimeStore } from "../realtime/useAlertsSocket";
 import AlertDetail from "./AlertDetail";
 
@@ -29,7 +30,9 @@ export default function AlertsPanel() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [openDetailId, setOpenDetailId] = useState<string | null>(null);
 
-  const allRows = alerts.data?.pages.flatMap((p) => p.results) ?? [];
+  // flattenPages (not a plain flatMap): dedupes rows that transiently sit on
+  // two pages after a socket prepend or first-page merge slid the boundary.
+  const allRows = flattenPages(alerts.data);
   const rows = unreadOnly ? allRows.filter((a) => !a.is_read) : allRows;
   const unreadCount = unread.data?.unread ?? 0;
 

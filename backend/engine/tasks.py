@@ -103,12 +103,21 @@ def sweep_due_strategies():
 # acks_late: a worker killed mid-evaluation (OOM, deploy) gets the message
 # redelivered instead of losing the run outright. Safe to redeliver — the eval
 # lock and the cooldown transaction make the evaluation idempotent.
-@shared_task(acks_late=True)
-def evaluate_strategy(strategy_id: str):
+@shared_task(acks_late=True, bind=True)
+def evaluate_strategy(self, strategy_id: str, rescheduled: bool = False):
     """Evaluate one strategy under a per-strategy lock (idempotent w.r.t. itself)."""
     key = _lock_key(strategy_id)
     # cache.add is atomic (Redis SET NX): only one holder at a time, fleet-wide.
     if not cache.add(key, "1", EVAL_LOCK_TTL):
+        # The holder may be an orphaned lock from a crashed worker (acks_late
+        # redelivery lands exactly here while the stale lock waits out its
+        # TTL). Dropping the run would silently consume the sweep's claim — up
+        # to a full poll window — so requeue ONCE for after the lock expires.
+        # If a live holder finishes first, the requeued run is a cheap
+        # re-evaluation gated by the cooldown.
+        if not rescheduled:
+            self.apply_async(args=(strategy_id,), kwargs={"rescheduled": True},
+                             countdown=EVAL_LOCK_TTL)
         return {"status": "locked", "strategy_id": strategy_id}
     try:
         return _run_evaluation(strategy_id)
@@ -199,6 +208,17 @@ def _run_evaluation(strategy_id: str):
             ):
                 _persist_eval(locked, value, now)
                 return {"status": "cooldown", "value": value}
+            # Snapshot the channels enabled AT FIRE TIME as pending markers:
+            # delivery and reconciliation both work off this snapshot, so a
+            # channel the user enables later is never back-applied to alerts
+            # that predate the change.
+            expected_channels = []
+            if locked.notify_in_app:
+                expected_channels.append("in_app")
+            if locked.notify_email:
+                expected_channels.append("email")
+            if locked.webhook_url:
+                expected_channels.append("webhook")
             alert = Alert.objects.create(
                 workspace=locked.workspace,
                 strategy=locked,
@@ -213,6 +233,7 @@ def _run_evaluation(strategy_id: str):
                 message=message,
                 condition_detail=detail,
                 data_synthetic=data_synthetic,
+                delivery={ch: {"pending": True} for ch in expected_channels},
             )
             locked.last_triggered_at = now
             locked.last_metric_value = value
@@ -230,21 +251,33 @@ def _run_evaluation(strategy_id: str):
 
     except Exception as exc:  # noqa: BLE001
         logger.exception("Strategy %s evaluation failed", strategy_id)
-        tripped = False
         try:
             limit = int(getattr(settings, "STRATEGY_MAX_CONSECUTIVE_FAILURES", 5))
-            strategy.consecutive_failures += 1
-            strategy.last_evaluated_at = now
-            strategy.last_error = str(exc)[:500]
-            fields = ["consecutive_failures", "last_evaluated_at", "last_error"]
-            if strategy.consecutive_failures >= limit:
+            # Atomic conditional update, never a stale read-modify-write: the
+            # instance loaded at task start is minutes old by now (price fetch
+            # + AI call sit in between), and a user may have paused or
+            # reactivated the strategy since. Only rows still ACTIVE get
+            # failure bookkeeping, so a concurrent re-arm is never reverted.
+            updated = Strategy.objects.filter(
+                pk=strategy_id, status=Strategy.Status.ACTIVE,
+            ).update(
+                consecutive_failures=F("consecutive_failures") + 1,
+                last_evaluated_at=now,
+                last_error=str(exc)[:500],
+            )
+            if updated:
                 # Circuit breaker: stop burning fleet capacity on a strategy
                 # that keeps failing. The user re-arms it by setting the
                 # status back to active (which resets the counter).
-                strategy.status = Strategy.Status.FAILED
-                fields.append("status")
-                tripped = True
-            strategy.save(update_fields=fields)
+                tripped = Strategy.objects.filter(
+                    pk=strategy_id, status=Strategy.Status.ACTIVE,
+                    consecutive_failures__gte=limit,
+                ).update(status=Strategy.Status.FAILED)
+                if tripped:
+                    # A tripped strategy leaves every future sweep — tell the
+                    # owner, or "alerts eventually fire" fails silently.
+                    strategy.refresh_from_db()
+                    notify_strategy_failed(strategy)
         except Exception:  # noqa: BLE001
             # Best-effort bookkeeping: the evaluation error above is already
             # logged; record (not raise) if even the failure-save failed.
@@ -262,8 +295,8 @@ RECONCILE_MAX_AGE_HOURS = 24
 
 @shared_task(ignore_result=True)
 def reconcile_undelivered_alerts():
-    """Re-enqueue delivery for alerts whose enabled channels never recorded an
-    outcome.
+    """Re-enqueue delivery for fire-time channels that never recorded an
+    outcome (their snapshot marker is still ``{"pending": True}``).
 
     Closes the crash window between an alert's commit and its delivery fan-out:
     without this, a worker death there leaves an alert no channel ever attempts
@@ -275,25 +308,16 @@ def reconcile_undelivered_alerts():
     window = Alert.objects.filter(
         created_at__lt=now - timedelta(minutes=RECONCILE_MIN_AGE_MINUTES),
         created_at__gte=now - timedelta(hours=RECONCILE_MAX_AGE_HOURS),
-    ).select_related("strategy")
+    )
     requeued = 0
     for alert in window.iterator(chunk_size=200):
-        strategy = alert.strategy
-        if strategy is None:
-            # Strategy deleted since firing: in-app is the only channel that
-            # doesn't depend on strategy config.
-            expected = ["in_app"]
-        else:
-            expected = []
-            if strategy.notify_in_app:
-                expected.append("in_app")
-            if strategy.notify_email:
-                expected.append("email")
-            if strategy.webhook_url:
-                expected.append("webhook")
         recorded = alert.delivery or {}
-        for channel in expected:
-            if channel not in recorded:
+        # The alert row snapshots its fire-time channels as pending markers
+        # (written in the same transaction as the alert), so reconciliation
+        # never consults the strategy's CURRENT flags — a channel enabled
+        # after the fire must not back-deliver hours-old alerts as if fresh.
+        for channel, outcome in recorded.items():
+            if isinstance(outcome, dict) and outcome.get("pending"):
                 deliver_alert_channel.delay(str(alert.id), channel)
                 requeued += 1
     if requeued:

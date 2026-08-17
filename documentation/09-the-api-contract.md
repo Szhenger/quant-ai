@@ -194,19 +194,33 @@ So QuantAI opens a second kind of connection: a **WebSocket**. Where HTTP is a s
 
 But WebSockets break our tidy §9.3 story, and the reason is almost silly: **a browser won't let JavaScript set custom headers when opening a WebSocket.** No headers means no `Authorization: Bearer ...`. Our whole identity scheme rode in a header. Now what?
 
-The workaround is to smuggle the access token in the **query string** of the connect URL:
+The tempting workaround is a `?token=` query parameter — but a URL is the one part of a
+request that everything on the path writes down: proxy and load-balancer access logs, APM
+traces, browser history. A bearer token must never live where logging is the default.
+
+There is exactly one header a browser *will* let you influence on a WebSocket:
+`Sec-WebSocket-Protocol`, the subprotocol negotiation list. So the client offers two
+"protocols" — the real one, and the token dressed as one:
 
 ```
-ws://<host>/ws/alerts/{workspace_id}/?token=<access-token>
+ws://<host>/ws/alerts/{workspace_id}/
+Sec-WebSocket-Protocol: quantai.v1, quantai.token.<access-token>
 ```
 
-A small middleware plucks it out before the connection is accepted, in `backend/engine/ws_auth.py`:
+(A JWT is unpadded base64url plus dots — all legal subprotocol characters.) A small
+middleware plucks the token out before the connection is accepted, in
+`backend/engine/ws_auth.py`, and the consumer completes the handshake by selecting
+`quantai.v1` — a server must echo one of the *offered* subprotocols or the browser drops
+the connection, which is why the token rides as a second, never-selected entry:
 
 ```python
 class JWTAuthMiddleware(BaseMiddleware):
     async def __call__(self, scope, receive, send):
-        query = parse_qs(scope.get("query_string", b"").decode())
-        token = (query.get("token") or [None])[0]
+        token = None
+        for offered in scope.get("subprotocols") or []:
+            if offered.startswith(TOKEN_SUBPROTOCOL_PREFIX):
+                token = offered[len(TOKEN_SUBPROTOCOL_PREFIX):]
+                break
         scope["user"] = await self._authenticate(token)
         return await super().__call__(scope, receive, send)
 
@@ -314,10 +328,11 @@ X-Workspace-ID: 7f3a…-uuid
 → 201 {"id": "...", "name": "AAPL oversold", ...}
 ```
 
-**5. Open the WebSocket.** The token can't be a header here, so it rides in the query string. The middleware authenticates it; the consumer checks ownership and either closes `4001/4003` or accepts.
+**5. Open the WebSocket.** The token rides in the one header a browser allows — the subprotocol list (§9.7). The middleware authenticates it; the consumer checks ownership and either closes `4001/4003` or accepts.
 
 ```
-WS  ws://localhost:8000/ws/alerts/7f3a…-uuid/?token=eyJhbGciOi...
+WS  ws://localhost:8000/ws/alerts/7f3a…-uuid/
+    Sec-WebSocket-Protocol: quantai.v1, quantai.token.eyJhbGciOi...
 ← {"type": "connected", "workspace_id": "7f3a…-uuid"}
 ```
 
@@ -359,7 +374,7 @@ Cases 3 and 4 return the *same* `404`. That's not laziness — it's the point. T
 
 ## 9.11 Problem set
 
-1. **Why not put the JWT in the URL for every request?** WebSockets forced us to (§9.7). List three concrete ways a token in a URL leaks that a token in an `Authorization` header does not. Then explain why QuantAI tolerates it *only* for the WebSocket and *only* with the access token — reference the 60-minute lifetime and the access/refresh split. What would change if someone lazily used the *refresh* token in the `?token=` slot?
+1. **Why not put the JWT in the URL?** The obvious WebSocket workaround is a `?token=` query parameter (§9.7 rejects it). List three concrete ways a token in a URL leaks that a token in a request header does not. Then explain how the `Sec-WebSocket-Protocol` scheme avoids all three while still working from a browser — and why the server must echo `quantai.v1` (not the token entry) when it accepts. What would go wrong if someone lazily put the *refresh* token in the subprotocol slot instead of the access token?
 
 2. **The tenancy check.** Rewrite `resolve_active_workspace` as the naive two-step it must *not* be: first `Workspace.objects.get(id=workspace_id)`, then a separate `if workspace.owner != request.user`. Both "work." Explain what an attacker can learn from the *timing* or *error message* of the two-step version that the single-query version hides. Why is "authorization folded into the lookup" a security property, not just tidier code?
 

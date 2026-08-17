@@ -129,24 +129,27 @@ goes stale:
 
 ---
 
-## Known bugs (`backend/regressions/`)
+## Audit regressions (`backend/regressions/`)
 
-The 2026-08 audit found real defects; each deterministic one is pinned as an
-`xfail` test that encodes the **desired** behavior:
+The 2026-08 audit found real defects; each deterministic one was first pinned
+as a non-strict `xfail` test encoding the **desired** behavior. The fixes have
+since landed, the markers are gone, and the tests now guard the fixed behavior
+permanently:
 
-| ID | Defect |
+| ID | Defect (fixed) |
 |---|---|
-| AUDIT-B1 | The circuit breaker trips a strategy to FAILED but `notify_strategy_failed` is never called — alerts stop silently. |
-| AUDIT-B2 | Delivery reconciliation uses the strategy's *current* channel flags, so enabling a channel back-delivers up to 24h of old alerts. |
-| AUDIT-B4 | PATCHing a flat field on a composite strategy returns 200 but silently discards the change. |
-| AUDIT-B6 | With an AI node present, the graph compiler silently drops conditions not wired into the tree. |
-| AUDIT-B7 | The MACD histogram unmasks values before its own warm-up standard is met. |
+| AUDIT-B1 | The circuit breaker tripped a strategy to FAILED without ever calling `notify_strategy_failed` — alerts stopped silently. |
+| AUDIT-B2 | Delivery reconciliation used the strategy's *current* channel flags; it now works off the fire-time snapshot on the alert row. |
+| AUDIT-B3 | Failure bookkeeping was a stale read-modify-write; it is now a conditional update that never reverts a concurrent user pause/re-arm. |
+| AUDIT-B4 | PATCHing a flat field on a composite strategy returned 200 while silently discarding the change; it is now a 400 naming the field. |
+| AUDIT-B5 | A redelivered task that found the eval lock held dropped the run (consuming the poll window); it now requeues once after the lock TTL. |
+| AUDIT-B6 | With an AI node present, the graph compiler silently dropped conditions not wired into the tree; orphans are now a compile error. |
+| AUDIT-B7 | The MACD histogram unmasked values before its own warm-up standard; the mask now covers `slow + signal − 1` bars. |
 
-The suite stays green today (xfail is non-strict). When a fix lands, the test
-reports **XPASS** — remove the marker in the same PR to lock the fix in. The
-full audit (including frontend and security findings that don't reduce to a
-deterministic backend test) is in the PR description that introduced this
-folder.
+That is the pattern for future finds: pin the bug as xfail, fix it, drop the
+marker in the fixing PR. The full audit (including the frontend and security
+findings, all since patched) is in the description of the PR that introduced
+this folder.
 
 ---
 

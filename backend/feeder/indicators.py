@@ -217,9 +217,12 @@ def _macd_hist_series(closes: List[float], fast: int, slow: int, signal: int) ->
         return [None] * n
     macd = _ema(closes, fast) - _ema(closes, slow)
     hist = macd - _ema(macd.tolist(), signal)
-    # Mask the warm-up region where the slow EMA is unreliable.
+    # Mask the full warm-up region — the slow EMA AND the signal-line EMA over
+    # it — matching the ``n >= slow + signal`` sufficiency guard above. Anything
+    # shorter exposes seed-biased values whose fires shift with how much
+    # history the provider happened to return.
     out: List[Optional[float]] = [None] * n
-    for i in range(slow, n):
+    for i in range(slow + signal - 1, n):
         out[i] = float(hist[i])
     return out
 

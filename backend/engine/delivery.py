@@ -166,8 +166,14 @@ def _send_webhook(alert) -> dict:
                                  f"{timestamp}.".encode() + body,
                                  hashlib.sha256).hexdigest()
             headers["X-QuantAI-Signature"] = f"sha256={signature}"
+        # When configured, all webhook egress goes through a filtering proxy —
+        # the only complete answer to validate-then-connect DNS rebinding.
+        post_kwargs = {"timeout": 5, "allow_redirects": False}
+        proxy = getattr(settings, "WEBHOOK_EGRESS_PROXY", "")
+        if proxy:
+            post_kwargs["proxies"] = {"http": proxy, "https": proxy}
         resp = requests.post(strategy.webhook_url, data=body, headers=headers,
-                             timeout=5, allow_redirects=False)
+                             **post_kwargs)
         if resp.ok:
             return {"ok": True, "detail": f"HTTP {resp.status_code}"}
         # 3xx: redirects are deliberately not followed. 4xx (bar 408/429): the

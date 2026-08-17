@@ -57,8 +57,16 @@ export function useAlertsSocket(): void {
         if (!access) return null;
         // WS_BASE, not window.location.origin: in split-origin deployments the
         // frontend is a static site and the socket must dial the API service
-        // (VITE_WS_BASE); same-origin remains the dev default.
-        return `${WS_BASE}/ws/alerts/${workspaceId}/?token=${encodeURIComponent(access)}`;
+        // (VITE_WS_BASE); same-origin remains the dev default. The token is
+        // NOT in this URL — it rides in the subprotocol header below, where
+        // access logs can't see it.
+        return `${WS_BASE}/ws/alerts/${workspaceId}/`;
+      },
+      buildProtocols: () => {
+        const { access } = useAuthStore.getState();
+        // The server accepts "quantai.v1" and reads the bearer token from the
+        // second offered subprotocol (see backend/engine/ws_auth.py).
+        return access ? ["quantai.v1", `quantai.token.${access}`] : undefined;
       },
       onAlert: (raw) => {
         const alert = raw as Alert;

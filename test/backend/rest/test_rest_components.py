@@ -154,3 +154,22 @@ def test_cross_tenant_probes_read_as_not_found(auth_client):
     would confirm the resource exists in someone else's tenant."""
     response = auth_client.get(f"/api/v1/strategies/{uuid.uuid4()}/")
     assert response.status_code == 404
+
+
+def test_eager_evaluate_errors_never_leak_exception_text(auth_client, workspace, monkeypatch):
+    """Internal exception strings (paths, hosts, library internals) stay in
+    the logs and strategy.last_error — the API returns only the status."""
+    from engine import tasks as engine_tasks
+
+    strategy = Strategy.objects.create(
+        workspace=workspace, name="Boom", ticker="AAPL",
+        indicator="PRICE", operator=">", threshold=0.0, ai_enabled=False,
+    )
+
+    def broken_provider():
+        raise RuntimeError("psycopg://internal-host:5432 exploded")
+
+    monkeypatch.setattr(engine_tasks, "get_provider", broken_provider)
+    response = auth_client.post(f"/api/v1/strategies/{strategy.id}/evaluate/")
+    assert response.status_code == 200
+    assert response.json() == {"status": "error"}

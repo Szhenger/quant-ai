@@ -89,6 +89,14 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    // Number("") is 0 — an emptied input must not submit a hot-poll/zero-
+    // cooldown strategy (the server rejects it; fail here with a clear message).
+    const poll = Number(pollInterval);
+    const cool = Number(cooldown);
+    if (!Number.isInteger(poll) || poll < 1 || !Number.isInteger(cool) || cool < 1) {
+      setError("Poll interval and cooldown must be whole minutes, at least 1.");
+      return;
+    }
     setSubmitting(true);
     try {
       await api.post("/strategies/", {

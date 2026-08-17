@@ -7,6 +7,7 @@ count, bulk mark-read, join hygiene), and the WebSocket heartbeat.
 import threading
 import time
 
+import pytest
 from asgiref.sync import async_to_sync
 from django.core.cache import cache
 
@@ -338,6 +339,36 @@ def test_alert_list_query_count_is_flat(auth_client, workspace, django_assert_ma
 # --------------------------------------------------------------------------
 # WebSocket heartbeat
 # --------------------------------------------------------------------------
+
+@pytest.mark.django_db(transaction=True)
+def test_ws_auth_reads_the_token_from_the_subprotocol_header():
+    """The access token rides in Sec-WebSocket-Protocol (quantai.token.<jwt>),
+    never in the URL — query strings land in proxy access logs; headers don't."""
+    from asgiref.sync import async_to_sync
+    from django.contrib.auth import get_user_model
+    from rest_framework_simplejwt.tokens import RefreshToken
+
+    from engine.ws_auth import JWTAuthMiddleware
+
+    user = get_user_model().objects.create_user(username="socketeer", password="pw12345!")
+    token = str(RefreshToken.for_user(user).access_token)
+    captured = {}
+
+    async def inner(scope, receive, send):
+        captured["user"] = scope["user"]
+
+    middleware = JWTAuthMiddleware(inner)
+    async_to_sync(middleware)(
+        {"subprotocols": ["quantai.v1", f"quantai.token.{token}"]}, None, None
+    )
+    assert captured["user"] == user
+
+    # A token in the query string no longer authenticates.
+    async_to_sync(middleware)(
+        {"query_string": f"token={token}".encode(), "subprotocols": []}, None, None
+    )
+    assert not captured["user"].is_authenticated
+
 
 def test_consumer_answers_ping_with_pong():
     consumer = AlertConsumer()

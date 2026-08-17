@@ -133,32 +133,61 @@ def requeued(monkeypatch):
     return calls
 
 
-def test_reconcile_requeues_only_channels_with_no_recorded_outcome(workspace, requeued):
+def test_reconcile_requeues_only_channels_still_marked_pending(workspace, requeued):
+    """Alert rows snapshot their fire-time channels as {"pending": True}
+    markers; reconciliation re-enqueues exactly the markers no delivery task
+    ever replaced with an outcome."""
     strategy = _strategy(workspace, notify_in_app=True, notify_email=True)
     alert = _alert(workspace, strategy, age_minutes=30,
-                   delivery={"in_app": {"ok": True}})
+                   delivery={"in_app": {"ok": True}, "email": {"pending": True}})
     tasks.reconcile_undelivered_alerts()
     assert requeued == [(str(alert.id), "email")]
+
+
+def test_reconcile_uses_the_fire_time_snapshot_not_current_flags(workspace, requeued):
+    """A channel enabled AFTER the fire has no pending marker on old alerts —
+    it must not be back-delivered as if fresh (AUDIT-B2)."""
+    strategy = _strategy(workspace, notify_in_app=True, notify_email=False)
+    _alert(workspace, strategy, age_minutes=30, delivery={"in_app": {"ok": True}})
+    strategy.notify_email = True
+    strategy.save(update_fields=["notify_email"])
+    tasks.reconcile_undelivered_alerts()
+    assert requeued == []
 
 
 def test_reconcile_leaves_young_alerts_alone(workspace, requeued):
     """An alert younger than the floor may still be sitting in the delivery
     queue — re-enqueueing it would guarantee duplicates."""
-    _alert(workspace, _strategy(workspace), age_minutes=1)
+    _alert(workspace, _strategy(workspace), age_minutes=1,
+           delivery={"in_app": {"pending": True}})
     tasks.reconcile_undelivered_alerts()
     assert requeued == []
 
 
 def test_reconcile_ignores_alerts_past_the_repair_ceiling(workspace, requeued):
-    _alert(workspace, _strategy(workspace), age_minutes=60 * 25)
+    _alert(workspace, _strategy(workspace), age_minutes=60 * 25,
+           delivery={"in_app": {"pending": True}})
     tasks.reconcile_undelivered_alerts()
     assert requeued == []
 
 
-def test_reconcile_for_a_deleted_strategy_expects_in_app_only(workspace, requeued):
-    alert = _alert(workspace, None, age_minutes=30)
+def test_reconcile_repairs_alerts_whose_strategy_was_deleted(workspace, requeued):
+    """The snapshot lives on the alert row, so repair works even after the
+    strategy is gone."""
+    alert = _alert(workspace, None, age_minutes=30,
+                   delivery={"in_app": {"pending": True}})
     tasks.reconcile_undelivered_alerts()
     assert requeued == [(str(alert.id), "in_app")]
+
+
+def test_evaluation_seeds_the_delivery_snapshot_at_fire_time(workspace):
+    strategy = _strategy(workspace, notify_in_app=True, notify_email=True)
+    tasks.evaluate_strategy(str(strategy.pk))  # PRICE > 0 fires
+    delivery = Alert.objects.get().delivery
+    # Eager delivery already replaced the markers with outcomes, one per
+    # fire-time channel — no more, no fewer.
+    assert set(delivery) == {"in_app", "email"}
+    assert all(not v.get("pending") for v in delivery.values())
 
 
 def test_reconcile_is_idempotent_once_outcomes_are_recorded(workspace, requeued):

@@ -121,11 +121,11 @@ def test_macd_hist_hand_computed():
     #   MACD      = [0, 2/3, 14/9, 86/27]
     #   signal    = [0, 4/9, 32/27, 68/27]
     #   histogram = MACD − signal = [0, 2/9, 10/27, 18/27]
-    # with bars below index `slow` masked as warm-up.
+    # with the first slow+signal-1 = 3 bars masked as warm-up (the slow EMA
+    # AND the signal line over it must both be warm).
     result = compute_indicator("MACD_HIST", [2.0, 4.0, 8.0, 16.0],
                                {"fast": 1, "slow": 2, "signal": 2})
-    assert result["series"][:2] == [None, None]
-    assert result["series"][2] == pytest.approx(10 / 27)
+    assert result["series"][:3] == [None, None, None]
     assert result["series"][3] == pytest.approx(18 / 27)
 
 

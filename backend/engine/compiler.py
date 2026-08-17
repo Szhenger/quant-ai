@@ -119,11 +119,14 @@ def compile_graph(nodes: list, edges: list) -> dict:
             if edge.get("target") == parent_id and edge.get("source") in condition_ids
         ]
 
+    visited = set()
+
     def compile_node(node, seen):
         nid = node["id"]
         if nid in seen:
             raise GraphCompilationError("Graph contains a cycle.")
         seen = seen | {nid}
+        visited.add(nid)
         if node.get("type") == "logic":
             op = (node.get("data") or {}).get("op", "AND")
             if op not in ("AND", "OR"):
@@ -137,6 +140,19 @@ def compile_graph(nodes: list, edges: list) -> dict:
 
     root = _find_root(condition_ids, ai_id, edges, node_map)
     tree = compile_node(root, set())
+
+    # Every condition node must be reachable from the root: a quant/logic node
+    # left unwired would otherwise be dropped silently, and the user would
+    # believe a condition gates their alerts that in fact does nothing. (The
+    # no-AI path already rejects this as "multiple disconnected conditions";
+    # with an AI node the root comes from its feeder edge, so check explicitly.)
+    orphans = condition_ids - visited
+    if orphans:
+        raise GraphCompilationError(
+            "Condition node(s) not connected to the strategy output: "
+            + ", ".join(sorted(orphans))
+            + ". Wire them in with a Logic (AND/OR) node or remove them."
+        )
 
     rep = representative_fields(tree)
     return {

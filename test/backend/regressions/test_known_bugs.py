@@ -1,9 +1,9 @@
-"""Known bugs, pinned as xfail regression tests.
+"""Regression locks for the defects found in the 2026-08 code audit.
 
-Each test encodes the DESIRED behavior for a defect found in the 2026-08 code
-audit (see test/README.md → "Known bugs"). They are marked ``xfail`` (non-
-strict) so the suite stays green today; when a fix lands, the test flips to
-XPASS in the report — remove the marker in the same PR to lock the fix in.
+Each test encodes the DESIRED behavior for a bug found in the audit (see
+test/README.md → "Known bugs"). They started life as non-strict ``xfail``
+pins; the fixes have landed, so the markers are gone and these now guard the
+fixed behavior permanently.
 """
 from types import SimpleNamespace
 
@@ -26,8 +26,8 @@ def _strategy(workspace, **overrides):
     return Strategy.objects.create(**fields)
 
 
-@pytest.mark.xfail(reason="AUDIT-B1: notify_strategy_failed is imported but never "
-                          "called — the breaker trips silently", strict=False)
+# AUDIT-B1: the breaker used to trip silently — notify_strategy_failed was
+# imported but never called.
 def test_tripping_the_circuit_breaker_notifies_the_owner(workspace, monkeypatch, settings):
     settings.STRATEGY_MAX_CONSECUTIVE_FAILURES = 1
     strategy = _strategy(workspace)
@@ -42,14 +42,32 @@ def test_tripping_the_circuit_breaker_notifies_the_owner(workspace, monkeypatch,
     tasks.evaluate_strategy(str(strategy.pk))
 
     strategy.refresh_from_db()
-    assert strategy.status == Strategy.Status.FAILED  # this part works today
+    assert strategy.status == Strategy.Status.FAILED
     assert notified == [strategy.pk], (
         "a strategy that will never be swept again must tell its owner"
     )
 
 
-@pytest.mark.xfail(reason="AUDIT-B6: with an AI node present, conditions not wired "
-                          "into the tree are silently dropped", strict=False)
+# AUDIT-B3 (companion to B1): failure bookkeeping is a conditional update on
+# ACTIVE rows only — it must never revert a concurrent user pause/re-arm.
+def test_failure_bookkeeping_never_overwrites_a_concurrent_pause(workspace, monkeypatch):
+    strategy = _strategy(workspace)
+
+    def failing_provider_that_races_a_pause():
+        # The user pauses the strategy while the evaluation is mid-flight.
+        Strategy.objects.filter(pk=strategy.pk).update(status=Strategy.Status.PAUSED)
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(tasks, "get_provider", failing_provider_that_races_a_pause)
+    tasks.evaluate_strategy(str(strategy.pk))
+
+    strategy.refresh_from_db()
+    assert strategy.status == Strategy.Status.PAUSED  # the user's action wins
+    assert strategy.consecutive_failures == 0
+
+
+# AUDIT-B6: with an AI node present, conditions not wired into the tree used
+# to be silently dropped.
 def test_graph_compiler_rejects_conditions_left_out_of_the_tree():
     nodes = [
         {"id": "asset", "type": "asset", "data": {"ticker": "AAPL"}},
@@ -64,13 +82,12 @@ def test_graph_compiler_rejects_conditions_left_out_of_the_tree():
         {"source": "wired", "target": "ai"},
         # "orphan" feeds nothing — the user thinks it gates the alert.
     ]
-    with pytest.raises(GraphCompilationError):
+    with pytest.raises(GraphCompilationError, match="orphan"):
         compile_graph(nodes, edges)
 
 
-@pytest.mark.xfail(reason="AUDIT-B7: MACD histogram unmasks from index `slow`, "
-                          "before its own n >= slow+signal warm-up standard",
-                   strict=False)
+# AUDIT-B7: the MACD histogram used to unmask values before its own
+# n >= slow+signal warm-up standard.
 def test_macd_histogram_masks_the_full_warmup_region():
     fast, slow, signal = 12, 26, 9
     closes = [100.0 + (i % 7) for i in range(40)]
@@ -81,11 +98,11 @@ def test_macd_histogram_masks_the_full_warmup_region():
     assert all(v is None for v in warmup), (
         "histogram values exposed while the signal-line EMA is still warming up"
     )
+    assert series[slow + signal - 1] is not None  # and no over-masking
 
 
-@pytest.mark.xfail(reason="AUDIT-B4: PATCHing flat fields on a composite strategy "
-                          "returns 200 but silently discards the change",
-                   strict=False)
+# AUDIT-B4: PATCHing a flat field on a composite strategy used to return 200
+# while silently discarding the change.
 def test_patching_a_flat_field_on_a_composite_strategy_is_not_silently_dropped(
         auth_client, workspace):
     created = auth_client.post("/api/v1/strategies/", {
@@ -105,18 +122,20 @@ def test_patching_a_flat_field_on_a_composite_strategy_is_not_silently_dropped(
         f"/api/v1/strategies/{created.json()['id']}/",
         {"threshold": 25.0}, format="json",
     )
-    # Desired: either the edit is applied to the tree's representative leaf, or
-    # the request is rejected — never a 200 that changed nothing.
-    assert (response.status_code == 400
-            or response.json()["threshold"] == 25.0), (
-        f"200 with threshold={response.json().get('threshold')} — the user "
-        f"believes they tightened a rule that did not change"
+    assert response.status_code == 400
+    assert "threshold" in response.json()  # the error names the offending field
+
+    # Editing non-derived fields (pause, cooldown, delivery) still works.
+    response = auth_client.patch(
+        f"/api/v1/strategies/{created.json()['id']}/",
+        {"status": "paused"}, format="json",
     )
+    assert response.status_code == 200, response.content
+    assert response.json()["status"] == "paused"
 
 
-@pytest.mark.xfail(reason="AUDIT-B2: reconciliation derives expected channels from "
-                          "the strategy's CURRENT flags, not its fire-time flags",
-                   strict=False)
+# AUDIT-B2: reconciliation used to derive expected channels from the
+# strategy's CURRENT flags; it now works off the alert's fire-time snapshot.
 def test_enabling_a_channel_does_not_backfill_deliveries_for_old_alerts(
         workspace, monkeypatch):
     from datetime import timedelta
@@ -145,3 +164,30 @@ def test_enabling_a_channel_does_not_backfill_deliveries_for_old_alerts(
     )
     tasks.reconcile_undelivered_alerts()
     assert requeued == [], "hours-old alerts must not be re-delivered as fresh"
+
+
+# AUDIT-B5: a redelivered task that finds the (possibly orphaned) eval lock
+# held must requeue itself for after the TTL instead of dropping the run.
+def test_lock_contention_requeues_once_instead_of_dropping_the_run(workspace, monkeypatch):
+    from django.core.cache import cache
+
+    from engine.tasks import EVAL_LOCK_TTL, _lock_key
+
+    strategy = _strategy(workspace)
+    cache.add(_lock_key(str(strategy.pk)), "1", EVAL_LOCK_TTL)  # orphaned lock
+
+    requeues = []
+    monkeypatch.setattr(
+        tasks.evaluate_strategy, "apply_async",
+        lambda *a, **kw: requeues.append((kw.get("args"), kw.get("kwargs"), kw.get("countdown"))),
+    )
+    result = tasks.evaluate_strategy(str(strategy.pk))
+    assert result["status"] == "locked"
+    assert requeues == [((str(strategy.pk),), {"rescheduled": True}, EVAL_LOCK_TTL)]
+
+    # The requeued run must NOT requeue again — one deferral, then give up to
+    # the next sweep (no infinite chains).
+    requeues.clear()
+    result = tasks.evaluate_strategy(str(strategy.pk), rescheduled=True)
+    assert result["status"] == "locked"
+    assert requeues == []
