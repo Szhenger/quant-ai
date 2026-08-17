@@ -90,7 +90,9 @@ export interface Strategy {
   webhook_url: string;
   // Read-only, auto-generated: HMAC key receivers use to verify the
   // X-QuantAI-Signature header on webhook deliveries.
-  webhook_secret: string;
+  // Present on create/detail/rotate responses; omitted from LIST responses
+  // (the signing secret has no business in every page load).
+  webhook_secret?: string;
   status: StrategyStatus;
   poll_interval_minutes: number;
   cooldown_minutes: number;

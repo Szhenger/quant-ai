@@ -289,6 +289,14 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
   const onDeploy = async () => {
     setError(null);
     setSuccess(null);
+    // Number("") is 0 — an emptied input must not deploy a hot-poll/zero-
+    // cooldown strategy (the server rejects it; fail here with a clear message).
+    const poll = Number(pollInterval);
+    const cool = Number(cooldown);
+    if (!Number.isInteger(poll) || poll < 1 || !Number.isInteger(cool) || cool < 1) {
+      setError("Poll interval and cooldown must be whole minutes, at least 1.");
+      return;
+    }
     setDeploying(true);
     try {
       const payload = {

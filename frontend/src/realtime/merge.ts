@@ -85,3 +85,24 @@ export function mergeAlerts(fetched: Alert[], current: Alert[]): Alert[] {
   for (const a of fetched) byId.set(a.id, a);
   return [...byId.values()].sort((x, y) => y.created_at.localeCompare(x.created_at));
 }
+
+/**
+ * Flatten cached pages into one render list, deduping by id: after a socket
+ * prepend or a first-page merge, an alert can transiently sit on two pages
+ * (it slid across a cursor boundary between fetches). First occurrence wins —
+ * pages run newest-first, so that is the freshest copy.
+ */
+export function flattenPages(data: AlertPages | undefined): Alert[] {
+  if (!data) return [];
+  const seen = new Set<string>();
+  const out: Alert[] = [];
+  for (const page of data.pages) {
+    for (const alert of page.results) {
+      if (!seen.has(alert.id)) {
+        seen.add(alert.id);
+        out.push(alert);
+      }
+    }
+  }
+  return out;
+}

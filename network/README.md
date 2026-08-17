@@ -63,14 +63,17 @@ HTTP is request→response→done; alerts need the server to speak **first**. A 
 starts life as a normal HTTP request with `Upgrade: websocket` — then the connection stays
 open as a two-way pipe.
 
-The connect URL is `wss://…/ws/alerts/<workspace_id>/?token=<JWT>`, and each piece is a
+The connect URL is `wss://…/ws/alerts/<workspace_id>/` with the JWT riding in the
+`Sec-WebSocket-Protocol` header (`quantai.v1, quantai.token.<JWT>`), and each piece is a
 deliberate decision (`backend/config/asgi.py` reads top-to-bottom in this order):
 
 1. **Origin check first** (`OriginValidator`) — browsers on foreign origins are refused
    before any token is examined. Defence in depth on top of token auth.
-2. **`?token=` in the query string** — a browser cannot set an `Authorization` header on
-   a WebSocket, so the JWT rides the URL (`engine/ws_auth.py` resolves it, and re-checks
-   `is_active`, mirroring the HTTP path).
+2. **Token in the subprotocol header, never the URL** — a browser cannot set an
+   `Authorization` header on a WebSocket, and a `?token=` query string would land in
+   every proxy access log on the path. The subprotocol list is the one header a browser
+   allows, so the JWT rides there (`engine/ws_auth.py` resolves it, and re-checks
+   `is_active`, mirroring the HTTP path; the consumer echoes `quantai.v1` on accept).
 3. **Workspace ownership** — the consumer verifies the workspace in the URL is really
    yours before joining its channel group. Same two checkpoints as HTTP: identity, then
    tenancy.

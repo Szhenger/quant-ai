@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AlertPages,
+  flattenPages,
   markAllRead,
   markOneRead,
   markUnread,
@@ -103,5 +104,16 @@ describe("read-state transitions", () => {
       rolledBack.pages.flatMap((p) => p.results.map((a) => [a.id, a.is_read])),
     );
     expect(byId).toEqual({ live: false, a: false, b: false });
+  });
+});
+
+describe("flattenPages", () => {
+  it("flattens pages in order and dedupes rows that span a page boundary", () => {
+    const data = pages(["a", "b"], ["b", "c"]); // "b" slid across the cursor
+    expect(flattenPages(data).map((a) => a.id)).toEqual(["a", "b", "c"]);
+  });
+
+  it("maps undefined (cache miss) to an empty list", () => {
+    expect(flattenPages(undefined)).toEqual([]);
   });
 });

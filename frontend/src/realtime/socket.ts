@@ -21,6 +21,12 @@ export type SocketStatus = "connecting" | "open" | "down";
 export interface AlertSocketOptions {
   /** Called on every (re)connect. Return null to skip (not authenticated yet). */
   buildUrl: () => string | null;
+  /**
+   * Subprotocols to offer at each (re)connect. The access token rides here
+   * (`quantai.token.<jwt>`) instead of in the URL, so it never lands in
+   * proxy/load-balancer access logs or browser history.
+   */
+  buildProtocols?: () => string[] | undefined;
   onAlert: (alert: unknown) => void;
   /** Strategy lifecycle pushes (e.g. a circuit breaker tripping to FAILED). */
   onStrategyStatus?: (strategy: unknown) => void;
@@ -68,7 +74,7 @@ export class ReconnectingAlertSocket {
     }
 
     this.opts.onStatus("connecting");
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(url, this.opts.buildProtocols?.());
     this.ws = ws;
 
     ws.onopen = () => {

@@ -107,13 +107,18 @@ class YFinanceProvider(BaseProvider):
         df = yf.Ticker(ticker).history(period=f"{period_days}d", auto_adjust=True, timeout=20)
         if df is None or df.empty or "Close" not in df:
             raise ProviderError(f"No price data returned for {ticker!r}")
+        # Thinly-traded tickers return NaN closes for missing bars. A single
+        # NaN poisons every rolling window it touches (NaN compares false, so
+        # the strategy silently never fires), breaks strict JSON, and jsonb
+        # rejects it — drop those bars before anything downstream sees them.
+        clean = df["Close"].dropna()
         # 4dp: adjusted closes carry float64 noise (187.19000244140625) with no
         # market meaning. Full-precision digits are incompressible entropy, so
         # rounding at the source cuts the analysis/replay JSON ~30% raw and
         # ~55% after gzip (measured on 730 bars), and every cache layer
         # (Redis, Parquet, browser) stores the smaller form.
-        closes = [round(float(x), 4) for x in df["Close"].tolist()][-days:]
-        dates = [d.date().isoformat() for d in df.index][-days:]
+        closes = [round(float(x), 4) for x in clean.tolist()][-days:]
+        dates = [d.date().isoformat() for d in clean.index][-days:]
         if len(closes) < 2:
             raise ProviderError(f"Insufficient price history for {ticker!r}")
         return PriceSeries(ticker=ticker.upper(), closes=closes, dates=dates)

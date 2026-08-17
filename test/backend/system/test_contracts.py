@@ -80,6 +80,20 @@ def test_strategy_shape(auth_client):
     assert set(resp.data) == STRATEGY_FIELDS
 
 
+def test_strategy_list_omits_the_webhook_secret(auth_client):
+    """The signing secret rides on create/detail/rotate only — never on the
+    list the console fetches on every page load (types.ts marks it optional)."""
+    created = auth_client.post("/api/v1/strategies/", {
+        "name": "s", "ticker": "AAPL", "indicator": "PRICE",
+        "operator": ">", "threshold": 0.0, "ai_enabled": False,
+    }, format="json")
+    assert "webhook_secret" in created.data
+    listed = auth_client.get("/api/v1/strategies/").data["results"][0]
+    assert set(listed) == STRATEGY_FIELDS - {"webhook_secret"}
+    detail = auth_client.get(f"/api/v1/strategies/{created.data['id']}/").data
+    assert detail["webhook_secret"] == created.data["webhook_secret"]
+
+
 def test_alert_shape_and_nullability(auth_client, workspace):
     s = _make_strategy(workspace)
     evaluate_strategy(str(s.id))

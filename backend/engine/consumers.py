@@ -30,7 +30,11 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
 
         self.group = f"ws_{self.workspace_id}"
         await self.channel_layer.group_add(self.group, self.channel_name)
-        await self.accept()
+        # Echo the app subprotocol when the client offered it (browsers drop
+        # the connection if the server selects one they didn't offer, and the
+        # token rides in as a second, never-selected subprotocol).
+        offered = self.scope.get("subprotocols") or []
+        await self.accept("quantai.v1" if "quantai.v1" in offered else None)
         await self.send_json({"type": "connected", "workspace_id": self.workspace_id})
 
     async def disconnect(self, code):

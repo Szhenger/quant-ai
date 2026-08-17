@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { bootstrapAccess } from "./api/client";
 import { useAuthStore } from "./store/auth";
 import { useUnreadCount } from "./api/hooks";
 import { useAlertsSocket } from "./realtime/useAlertsSocket";
@@ -95,19 +96,59 @@ function Workspace() {
 
 export default function App() {
   const access = useAuthStore((s) => s.access);
+  const refresh = useAuthStore((s) => s.refresh);
   const workspaces = useAuthStore((s) => s.workspaces);
   const loadWorkspaces = useAuthStore((s) => s.loadWorkspaces);
 
-  // After a page refresh the persisted store rehydrates access/workspaceId but not
-  // the workspaces array — reload it so the workspace switcher reappears.
+  // The access token is memory-only (never persisted): after a page load,
+  // trade the persisted refresh token back in before deciding between the
+  // login page and the workspace, so a reload doesn't flash the login screen.
+  const [restoring, setRestoring] = useState(() => refresh != null);
   useEffect(() => {
-    if (access && workspaces.length === 0) {
-      void loadWorkspaces();
+    if (access || !refresh) {
+      setRestoring(false);
+      return;
     }
+    let cancelled = false;
+    void bootstrapAccess().finally(() => {
+      if (!cancelled) setRestoring(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [access, refresh]);
+
+  // After a page refresh the store rehydrates workspaceId but not the
+  // workspaces array — reload it, and RETRY with backoff: one failed load
+  // (cold backend, 502) must not wedge the app in a workspace-less state
+  // with no path to recovery except a manual reload.
+  useEffect(() => {
+    if (!access || workspaces.length > 0) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delay = 2_000;
+    const attempt = () => {
+      loadWorkspaces().catch(() => {
+        if (cancelled) return;
+        timer = setTimeout(attempt, delay);
+        delay = Math.min(delay * 2, 30_000);
+      });
+    };
+    attempt();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [access, workspaces.length, loadWorkspaces]);
 
   if (!access) {
-    return <LoginPage />;
+    return restoring ? (
+      <div className="login-page">
+        <p className="muted">Restoring session…</p>
+      </div>
+    ) : (
+      <LoginPage />
+    );
   }
   return <Workspace />;
 }

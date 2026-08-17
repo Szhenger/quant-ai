@@ -63,6 +63,17 @@ class StrategySerializer(serializers.ModelSerializer):
         except Exception:  # noqa: BLE001 — display-only; never fail a list over it
             return ""
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # The HMAC signing secret rides along on create/detail/rotate (the
+        # owner needs it to configure their receiver) but is omitted from
+        # LIST responses: the console lists strategies constantly, and a
+        # secret has no business in every page load, log and cache of it.
+        view = self.context.get("view")
+        if getattr(view, "action", None) == "list":
+            data.pop("webhook_secret", None)
+        return data
+
     def validate_ticker(self, value):
         try:
             return normalize_ticker(value)
@@ -102,8 +113,22 @@ class StrategySerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
     def validate(self, attrs):
-        condition = attrs.get("condition", getattr(self.instance, "condition", None))
+        sent_condition = "condition" in attrs
+        condition = (attrs.get("condition") if sent_condition
+                     else getattr(self.instance, "condition", None))
         if condition:
+            if self.instance is not None and not sent_condition:
+                # On a composite strategy the tree is authoritative and the
+                # flat columns are derived from it. A PATCH that sends a flat
+                # field without a new tree would be silently recomputed away —
+                # a 200 that changed nothing — so reject it instead.
+                overridden = {"indicator", "operator", "threshold", "params"} & set(attrs)
+                if overridden:
+                    raise serializers.ValidationError({
+                        field: "This strategy is composite; edit its condition "
+                               "tree (the flat fields are derived from it)."
+                        for field in sorted(overridden)
+                    })
             return self._validate_composite(attrs, condition)
         return self._validate_simple(attrs)
 

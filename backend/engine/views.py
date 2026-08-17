@@ -136,7 +136,13 @@ class StrategyViewSet(viewsets.ModelViewSet):
         from .tasks import evaluate_strategy  # local import avoids app-loading cycles
         async_result = evaluate_strategy.delay(str(strategy.id))
         if async_result.ready() and async_result.successful():
-            return Response(async_result.result)
+            result = async_result.result
+            if isinstance(result, dict) and result.get("status") == "error":
+                # Raw exception text is an internal detail (paths, hosts,
+                # library internals) — the owner reads the specifics from
+                # strategy.last_error; logs keep the full traceback.
+                result = {"status": "error"}
+            return Response(result)
         return Response({"status": "queued", "task_id": async_result.id},
                         status=status.HTTP_202_ACCEPTED)
 

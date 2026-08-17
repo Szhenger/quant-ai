@@ -50,12 +50,20 @@ if not DEBUG and not _IS_TEST_RUN and SECRET_KEY == _DEV_SECRET_KEY:
         "Refusing to start with the published dev SECRET_KEY outside DEBUG. "
         "Set DJANGO_SECRET_KEY, or set DJANGO_DEBUG=True for local development."
     )
-ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,0.0.0.0").split(",")
+# 0.0.0.0 is a bind address, never a legitimate client Host header — keep the
+# default allowlist tight.
+ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
 if not DEBUG:
     # Deployments terminate TLS at a proxy/load balancer (Render, etc.); trust
     # its forwarded-proto header so request.is_secure() and secure cookies work.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    # Belt-and-braces behind the TLS-terminating proxy: if a plaintext request
+    # ever reaches Django directly, redirect instead of serving it (a Bearer
+    # token on http is a leaked token). The health probe stays exempt —
+    # internal checkers may hit it without a forwarded-proto header.
+    SECURE_SSL_REDIRECT = True
+    SECURE_REDIRECT_EXEMPT = [r"^healthz/?$"]
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
     # HSTS is opt-in via env (a wrong value bricks a domain for its max-age, so
@@ -201,6 +209,13 @@ ALERT_RETENTION_DAYS = int(os.environ.get("ALERT_RETENTION_DAYS", "180"))
 STRATEGY_MAX_CONSECUTIVE_FAILURES = int(
     os.environ.get("STRATEGY_MAX_CONSECUTIVE_FAILURES", "5")
 )
+
+# Optional egress proxy for outbound webhook POSTs (e.g. "http://egress:3128").
+# Validation resolves and rejects private addresses, but DNS can rebind between
+# that check and the connect (TOCTOU) — a filtering proxy closes the residual
+# by policing the actual connection. Empty = direct egress (the validated
+# default).
+WEBHOOK_EGRESS_PROXY = os.environ.get("WEBHOOK_EGRESS_PROXY", "")
 
 # --- REST framework ----------------------------------------------------------
 REST_FRAMEWORK = {

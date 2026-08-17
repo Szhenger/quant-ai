@@ -39,8 +39,38 @@ async function refreshAccessToken(): Promise<string | null> {
     const access = res.data.access;
     useAuthStore.getState().setTokens(access, res.data.refresh ?? refresh);
     return access;
+  } catch (err) {
+    // Only the refresh endpoint REJECTING the token ends the session (null →
+    // logout below). A network blip or a 5xx from the gateway is transient:
+    // rethrow so the caller fails this one request and keeps the still-valid
+    // refresh token for the next attempt.
+    const status = axios.isAxiosError(err) ? err.response?.status : undefined;
+    if (status === 400 || status === 401) return null;
+    throw err;
+  }
+}
+
+/**
+ * Restore the in-memory access token after a page load. The access token is
+ * deliberately NOT persisted (see store/auth.ts) — this trades it back in
+ * from the persisted refresh token on boot. Resolves false when the session
+ * is truly over (refresh missing or rejected).
+ */
+export async function bootstrapAccess(): Promise<boolean> {
+  // Share the interceptor's single-flight promise: a boot-time 401 retry
+  // racing this call must not rotate the refresh token twice (the second
+  // POST would carry the just-blacklisted token and read as a revocation).
+  if (!refreshPromise) {
+    refreshPromise = refreshAccessToken().finally(() => {
+      refreshPromise = null;
+    });
+  }
+  try {
+    return (await refreshPromise) != null;
   } catch {
-    return null;
+    // Transient failure: report "not restored" without touching the store —
+    // the login screen's retry (or the next request's 401 path) tries again.
+    return false;
   }
 }
 
@@ -58,12 +88,19 @@ api.interceptors.response.use(
           refreshPromise = null;
         });
       }
-      const newAccess = await refreshPromise;
+      let newAccess: string | null;
+      try {
+        newAccess = await refreshPromise;
+      } catch {
+        // Transient refresh failure (network/5xx): fail THIS request only.
+        // The session survives; the next 401 retries the refresh.
+        return Promise.reject(error);
+      }
       if (newAccess) {
         original.headers.set("Authorization", `Bearer ${newAccess}`);
         return api(original);
       }
-      // Refresh failed: clear session. App re-renders to the login page.
+      // The refresh token was rejected: the session is over everywhere.
       useAuthStore.getState().logout();
     }
     return Promise.reject(error);
@@ -91,6 +128,13 @@ export async function fetchAllPages<T>(path: string, cap = 10): Promise<T[]> {
   const offsets: number[] = [];
   for (let o = pageSize; o < count && offsets.length < cap - 1; o += pageSize) {
     offsets.push(o);
+  }
+  if (count > cap * pageSize) {
+    // The cap exists as a runaway guard, but hitting it must never be silent —
+    // this function's whole purpose is lists that aren't quietly truncated.
+    console.warn(
+      `fetchAllPages(${path}): fetched ${cap * pageSize} of ${count} rows (cap ${cap} pages)`,
+    );
   }
   const rest = await Promise.all(
     offsets.map((offset) =>

@@ -106,12 +106,17 @@ The claim stops *duplicate enqueues*. But a strategy can still be evaluated conc
 That calls for a **lock**: a token only one holder can possess at a time. But a plain in-process lock (a `threading.Lock`) is useless here — our runners are in *different processes on possibly different machines*. Worker 1 and Worker 2 don't share memory. The lock has to live somewhere *both* can see. That's a **distributed lock**, and ours lives in Redis, via the cache:
 
 ```python
-@shared_task
-def evaluate_strategy(strategy_id: str):
+@shared_task(acks_late=True, bind=True)
+def evaluate_strategy(self, strategy_id: str, rescheduled: bool = False):
     """Evaluate one strategy under a per-strategy lock (idempotent w.r.t. itself)."""
     key = _lock_key(strategy_id)
     # cache.add is atomic (Redis SET NX): only one holder at a time, fleet-wide.
     if not cache.add(key, "1", EVAL_LOCK_TTL):
+        # The holder may be an orphaned lock from a crashed worker; requeue
+        # ONCE for after the TTL so the run isn't silently dropped.
+        if not rescheduled:
+            self.apply_async(args=(strategy_id,), kwargs={"rescheduled": True},
+                             countdown=EVAL_LOCK_TTL)
         return {"status": "locked", "strategy_id": strategy_id}
     try:
         return _run_evaluation(strategy_id)
@@ -119,7 +124,10 @@ def evaluate_strategy(strategy_id: str):
         cache.delete(key)
 ```
 
-Everything about this is deliberate. Let's take it apart.
+Everything about this is deliberate. Let's take it apart. (Even the loser's exit is
+careful: the lock it hit may be an *orphan* — a crashed worker's key waiting out its TTL —
+so the loser reschedules itself once for after the TTL rather than silently consuming the
+sweep's claim. One deferral, then give up to the next sweep: no infinite chains.)
 
 **`cache.add` is atomic — it's Redis `SET key value NX`.** The `NX` flag means "set **only if** the key does **N**ot e**X**ist." Redis performs the test ("does it exist?") and the set ("write it") as one indivisible operation. So if fifty workers call `cache.add` on the same key at the same microsecond, Redis hands `True` to **exactly one** of them and `False` to the other forty-nine. That is a **test-and-set**, the atomic heartbeat of every lock. The winner enters `_run_evaluation`; everyone else hits `return {"status": "locked", ...}` and no-ops. Notice this is the *same idea* as the CAS in Fix 1 — "act only if the state is what I expect, atomically" — just wearing a different hat (a cache key instead of a row).
 

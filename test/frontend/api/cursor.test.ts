@@ -28,3 +28,20 @@ describe("relativizeCursor", () => {
     expect(relativizeCursor(null)).toBeNull();
   });
 });
+
+describe("relativizeCursor with a configured API base", () => {
+  it("derives the strip prefix from an absolute base (split-origin deploy)", () => {
+    expect(
+      relativizeCursor(
+        "https://api.example.com/backend/alerts/?cursor=x",
+        "https://api.example.com/backend",
+      ),
+    ).toBe("/alerts/?cursor=x");
+  });
+
+  it("derives the prefix from a relative base with a trailing slash", () => {
+    expect(relativizeCursor("/api/v1/alerts/?cursor=x", "/api/v1/")).toBe(
+      "/alerts/?cursor=x",
+    );
+  });
+});

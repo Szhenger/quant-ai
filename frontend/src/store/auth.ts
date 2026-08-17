@@ -86,8 +86,13 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "quantai-auth",
+      // The ACCESS token is deliberately not persisted: it lives in memory
+      // only and is traded back in from the refresh token on boot (see
+      // bootstrapAccess in api/client.ts). That keeps the short-lived bearer
+      // out of localStorage entirely; the refresh token remains there as the
+      // session anchor — rotation + server-side blacklisting bound its blast
+      // radius, and moving it to an httpOnly cookie is the tracked follow-up.
       partialize: (state) => ({
-        access: state.access,
         refresh: state.refresh,
         workspaceId: state.workspaceId,
         username: state.username,
@@ -95,3 +100,16 @@ export const useAuthStore = create<AuthState>()(
     },
   ),
 );
+
+// Cross-tab session sync: refresh-token ROTATION in one tab blacklists the
+// token every other tab is holding — without this listener, another tab's
+// next refresh fails and force-logs it out. Rehydrating on the storage event
+// keeps all tabs on the current token pair, and a logout elsewhere clears
+// this tab's refresh token too (its in-memory access then expires naturally).
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === "quantai-auth") {
+      void useAuthStore.persist.rehydrate();
+    }
+  });
+}

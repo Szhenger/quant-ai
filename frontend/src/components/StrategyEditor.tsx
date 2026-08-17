@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import api from "../api/client";
 import { extractError } from "../api/errors";
 import { useRotateWebhookSecret, useUpdateStrategy } from "../api/hooks";
 import type { Strategy } from "../api/types";
@@ -33,14 +34,34 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
   const [showSecret, setShowSecret] = useState(false);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The strategies LIST omits the signing secret (it has no business in every
+  // page load); it is fetched from the detail endpoint on demand, and rotate
+  // returns the fresh value in its response body.
+  const [secret, setSecret] = useState<string | null>(strategy.webhook_secret ?? null);
+
+  const fetchSecret = async (): Promise<string> => {
+    if (secret) return secret;
+    const { data } = await api.get<Strategy>(`/strategies/${strategy.id}/`);
+    const fresh = data.webhook_secret ?? "";
+    setSecret(fresh);
+    return fresh;
+  };
 
   const onSave = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
+    const poll = Number(pollInterval);
+    const cool = Number(cooldown);
+    // Number("") is 0 — an emptied input must not submit a hot-poll/zero-
+    // cooldown strategy (the server rejects it, but fail with a clear message).
+    if (!Number.isInteger(poll) || poll < 1 || !Number.isInteger(cool) || cool < 1) {
+      setError("Poll interval and cooldown must be whole minutes, at least 1.");
+      return;
+    }
     const patch: Partial<Strategy> = {
       name: name.trim() || strategy.name,
-      poll_interval_minutes: Number(pollInterval),
-      cooldown_minutes: Number(cooldown),
+      poll_interval_minutes: poll,
+      cooldown_minutes: cool,
       webhook_url: webhookUrl.trim(),
       notify_in_app: notifyInApp,
       notify_email: notifyEmail,
@@ -59,19 +80,34 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
   const onRotate = () => {
     setError(null);
     rotate.mutate(strategy.id, {
-      onSuccess: () => setShowSecret(true),
+      // Show the NEW secret from the rotate response itself — the cached list
+      // row still holds the dead pre-rotation value until the refetch lands.
+      onSuccess: (fresh) => {
+        setSecret(fresh.webhook_secret ?? null);
+        setShowSecret(true);
+      },
       onError: (err) => setError(extractError(err)),
     });
   };
 
+  const onToggleReveal = () => {
+    if (showSecret) {
+      setShowSecret(false);
+      return;
+    }
+    fetchSecret()
+      .then(() => setShowSecret(true))
+      .catch((err) => setError(extractError(err)));
+  };
+
   const copySecret = async () => {
     try {
-      await navigator.clipboard.writeText(strategy.webhook_secret);
+      await navigator.clipboard.writeText(await fetchSecret());
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Clipboard unavailable (permissions/insecure context): reveal instead.
-      setShowSecret(true);
+      onToggleReveal();
     }
   };
 
@@ -170,9 +206,9 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
       <div className="secret-row">
         <span className="muted small">Webhook signing secret</span>
         <code className="mono small">
-          {showSecret ? strategy.webhook_secret : "••••••••••••••••••••••••••••••••"}
+          {showSecret && secret ? secret : "••••••••••••••••••••••••••••••••"}
         </code>
-        <button type="button" className="btn small" onClick={() => setShowSecret((s) => !s)}>
+        <button type="button" className="btn small" onClick={onToggleReveal}>
           {showSecret ? "Hide" : "Reveal"}
         </button>
         <button type="button" className="btn small" onClick={() => void copySecret()}>
