@@ -19,9 +19,9 @@ real bugs live, and it cannot be bolted on afterward.
 
 ## The reference docs
 
-- [**`abstractions.md`**](abstractions.md) — the project's language-and-layers map: which
-  language each subsystem speaks and why, and the abstraction each folder is allowed to
-  assume about the others.
+- [**`SPECIFICATION.md`**](SPECIFICATION.md) — the engineering specification: what the
+  system does, the languages, frameworks and services it is built from, the runtime
+  topology, and the contracts and invariants every layer must uphold.
 
 ## The subsystem guides
 

@@ -1,17 +1,61 @@
-# Abstractions
+# Specification
 
-> An overview of every layer QuantAI is built on: the programming languages, the web
-> frameworks, the external libraries, and the backend systems — what each one is, what
-> job it does here, and where in the repository it earns its keep.
+> The engineering specification of the QuantAI workspace: what the system does, the
+> components it is built from (languages, frameworks, libraries, backend services),
+> the runtime topology, and the contracts and invariants every layer must uphold.
 
-QuantAI is two applications sharing one contract: a **Python backend** (`backend/`) that
-computes indicators, evaluates user-defined conditions, and delivers alerts; and a
-**TypeScript console** (`frontend/`) that lets a person author those conditions and watch
-the results in real time. Everything below is in service of that split.
+## 1. System overview
 
----
+QuantAI is an AI-powered quantitative-research workspace. A user follows financial
+markets, defines quantitative conditions on them (e.g. "AAPL 20-day z-score < −2"),
+and receives AI-contextualised alerts when those conditions fire.
 
-## 1. Programming languages
+Structurally it is two applications sharing one executable contract:
+
+- a **Python backend** (`backend/`) that fetches market data, computes indicators,
+  evaluates user-defined condition trees on a schedule, and delivers alerts over
+  WebSocket, email, and signed webhooks;
+- a **TypeScript console** (`frontend/`) that lets a person author those conditions
+  (as a form or a visual graph) and watch markets, strategies, and alerts in real time.
+
+Everything below is in service of that split.
+
+## 2. Functional specification
+
+The system SHALL provide:
+
+1. **Identity & tenancy** — email/password accounts with JWT access/refresh tokens
+   (rotation + server-side blacklist so logout is real), and workspaces as the tenancy
+   boundary: every domain request carries `X-Workspace-ID`, and no data crosses
+   workspaces (`identity/`).
+2. **Market data** — daily bars and headlines per ticker from Yahoo Finance, wrapped in
+   a `ResilientProvider`: any upstream failure degrades to deterministic synthetic data
+   flagged `synthetic=true`, and that flag travels end-to-end to the UI
+   (`feeder/providers.py`).
+3. **Indicators** — SMA, EMA, z-score, RSI, MACD histogram, and annualised volatility,
+   computed with numpy (`feeder/indicators.py`) and described by a self-describing
+   catalog at `GET /indicators/` (label, unit, parameter defaults, default threshold,
+   help text) from which the console builds its strategy form.
+4. **Strategies** — a user-defined condition tree (indicator comparisons combined with
+   AND/OR) over one or more tickers, with an evaluation interval, a cooldown, delivery
+   channels, and a lifecycle (active / paused / auto-paused FAILED after consecutive
+   evaluation failures).
+5. **Evaluation** — a Celery Beat sweep every 60 s selects due strategies with a
+   database-side due filter and a compare-and-set claim; workers evaluate each strategy
+   under a TTL'd per-strategy lock, and write the alert and its cooldown stamp in one
+   transaction so a crash cannot split them (`engine/tasks.py`).
+6. **Alerts & delivery** — alerts persist with their evaluated-condition audit tree;
+   delivery fans out per channel (WebSocket group send, email, HMAC-signed webhooks with
+   redirects disabled) as retryable tasks; a reconciliation task re-enqueues channels
+   that never recorded an outcome; a daily retention task prunes old rows
+   (`engine/delivery.py`).
+7. **AI contextualisation** — fired conditions are summarised by Claude into structured
+   verdicts with confidence (`advisor/claude_client.py`), bounded to 30 s / 1 retry,
+   never in the critical alerting path: outages fail open.
+8. **Interactive analysis & replay** — on-demand indicator analysis and historical
+   replay of a strategy's condition tree, throttled per scope and cached fleet-wide.
+
+## 3. Programming languages
 
 | Language | Where | Why it's the right tool here |
 |---|---|---|
@@ -21,16 +65,14 @@ the results in real time. Everything below is in service of that split.
 | **Bash** | `tool/devdb.sh`, `Makefile` recipes, compose/CI command strings | Glue: a self-contained dev PostgreSQL for machines without Docker, and the repo's task entry points |
 | **YAML** | `docker-compose.yml`, `docker-compose.test.yml`, `render.yml`, `.github/workflows/ci.yml` | Declarative topology: what runs, what depends on what, what gets checked before traffic arrives |
 
----
-
-## 2. Web frameworks
+## 4. Web frameworks
 
 ### Backend — Django and its ecosystem
 
 | Framework | Role in QuantAI |
 |---|---|
 | **Django 5** | The application chassis: ORM and migrations (`engine/models.py`, `identity/models.py`), settings (`config/settings.py`), admin, auth user model, email framework, cache framework (the Redis-backed per-strategy eval lock rides on `django.core.cache`) |
-| **Django REST Framework (DRF)** | The HTTP API: viewsets and routers (`engine/views.py`, `identity/views.py`), serializers as the validation boundary for user-defined conditions (`engine/serializers.py`), cursor pagination for the unbounded alerts table, and per-scope throttling on the compute-heavy endpoints |
+| **Django REST Framework (DRF)** | The HTTP API: viewsets and routers (`engine/views.py`, `identity/views.py`), serializers as the validation boundary for user-defined conditions (`engine/serializers.py`), bounded pagination for the unbounded alerts table, and per-scope throttling on the compute-heavy endpoints |
 | **Django Channels 4** | The WebSocket layer: `engine/consumers.py` streams alerts to a workspace-scoped group; `engine/ws_auth.py` authenticates the socket with a JWT; `config/asgi.py` routes HTTP and WebSocket through one ASGI application behind an origin validator |
 
 ### Frontend — React and its ecosystem
@@ -40,9 +82,7 @@ the results in real time. Everything below is in service of that split.
 | **React 18** | Component model for the console: panels (`MarketsPanel`, `StrategiesPanel`, `AlertsPanel`, `ReplayPanel`), the strategy form, and the alert audit-tree detail view |
 | **Vite 5** | Dev server (with `/api` and `/ws` proxies to the backend) and production bundler — vendor chunks are split so app-code changes don't invalidate the framework bundle, and the graph builder loads lazily |
 
----
-
-## 3. External libraries
+## 5. External libraries
 
 ### Backend (`backend/requirements.txt`)
 
@@ -75,12 +115,10 @@ the results in real time. Everything below is in service of that split.
 | `vitest` | The frontend test suite, including the golden-fixture contract tests that pin `types.ts` to the backend's `test/backend/journeys/fixtures/*.json` |
 | `typescript` | Compile-time half of the API contract; `npm run build` type-checks before bundling |
 
----
+## 6. Runtime topology
 
-## 4. Backend systems
-
-The runtime topology — each box is a separately-running process or managed service
-(`docker-compose.yml` locally, `render.yml` in production):
+Each box is a separately-running process or managed service (`runtime/docker-compose.yml`
+locally, `runtime/render.yml` in production):
 
 ```
                         ┌────────────────────────┐
@@ -113,21 +151,41 @@ The runtime topology — each box is a separately-running process or managed ser
 | **Render** | Production hosting: web service (API), worker, Beat, managed Postgres and Redis (`noeviction`), and the static console site — secrets injected, never committed |
 | **GitHub Actions** | CI: the backend suite + migration-drift check in containers, and the frontend test + type-check + build, all read-only permissions |
 
----
-
-## 5. How the layers meet: the contract seams
+## 7. Contract seams (normative)
 
 Three seams keep the stack honest, and each has an executable pin:
 
 1. **REST/WS wire shapes** — `test/backend/journeys/fixtures/*.json` is the single
    source of truth. `test/backend/journeys/test_contract_fixtures.py` proves the live
    API produces those shapes; `frontend/src/api/contracts.test.ts` proves `types.ts`
-   matches the same files. A serializer change must update both sides in one PR.
+   matches the same files. A serializer change MUST update both sides in one PR.
 2. **The indicator catalog** — `GET /indicators/` describes every indicator (label,
    unit, parameter defaults, default threshold, help text), and the console builds its
-   strategy form from it. Adding an indicator server-side surfaces it in the UI with no
-   frontend change.
+   strategy form from it. Adding an indicator server-side MUST surface it in the UI
+   with no frontend change.
 3. **Data honesty** — the `synthetic` flag travels with every price series from
    `feeder/providers.py` through alerts, analysis and replay payloads to the UI badges,
    enforced by `test/backend/journeys/uxspec.py`. No layer may present fabricated
    fallback data as real market data.
+
+## 8. Non-functional requirements
+
+- **Safety by default** — an unset `DJANGO_DEBUG` means production behaviour; the
+  server refuses to start with the published dev `SECRET_KEY` outside DEBUG; HSTS is an
+  explicit deployment decision (`config/settings.py`).
+- **Concurrency correctness** — at most one evaluation per strategy at a time (cache
+  lock TTL 300 s, above the Celery hard time limit of 240 s so a lock cannot expire
+  under a live task); alert + cooldown are atomic; delivery is at-least-once with
+  reconciliation, and idempotency guards make it effectively exactly-once.
+- **Bounded resources** — client-supplied page sizes are capped
+  (`config/pagination.py`); the alerts table and token blacklist are pruned daily;
+  Celery results expire after 1 h; compute-heavy endpoints carry scoped throttles
+  (evaluate 20/min, replay 30/min, analysis 120/min).
+- **Performance** — repeated bar fetches for the same ticker collapse to one upstream
+  call per TTL window via the fleet-wide shared cache with a single-flight lock;
+  analysis/replay payloads are cached (120 s / 600 s; 30 s when synthetic); responses
+  are gzip-compressed; frontend vendor chunks are split and the graph builder is
+  lazy-loaded.
+- **Degradation** — market-data outages degrade to flagged synthetic data; the AI layer
+  and each delivery channel fail independently; nothing user-facing hard-depends on an
+  external service.
