@@ -64,7 +64,7 @@ function describeEvalResult(data: EvaluateResult): EvalDisplay {
   }
 }
 
-export default function StrategiesPanel() {
+export default function StrategiesPanel({ initialTicker }: { initialTicker?: string } = {}) {
   const ws = useWorkspaceId();
   const qc = useQueryClient();
   const strategies = useStrategies();
@@ -324,7 +324,7 @@ export default function StrategiesPanel() {
         </div>
 
         {builder === "form" ? (
-          <StrategyForm onCreated={onCreated} />
+          <StrategyForm onCreated={onCreated} initialTicker={initialTicker} />
         ) : (
           <Suspense fallback={<p className="muted">Loading graph builder…</p>}>
             <StrategyGraphBuilder onCreated={onCreated} />

@@ -1,3 +1,3 @@
-from .claude_client import ClaudeClient, AlertVerdict
+from .claude_client import ClaudeClient, AlertVerdict, NewsSummary
 
-__all__ = ["ClaudeClient", "AlertVerdict"]
+__all__ = ["ClaudeClient", "AlertVerdict", "NewsSummary"]

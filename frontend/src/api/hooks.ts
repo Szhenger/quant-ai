@@ -29,6 +29,8 @@ import type {
   IndicatorCatalog,
   MarketAnalysis,
   ReplayResult,
+  StockHistory,
+  StockPage,
   Strategy,
   UnreadCount,
   WatchedTicker,
@@ -47,6 +49,8 @@ export const keys = {
   unread: (ws: string) => [ws, "unread"] as const,
   replay: (ws: string, id: string, days: number, cooldown: number) =>
     [ws, "replay", id, days, cooldown] as const,
+  stockPage: (ws: string, id: string) => [ws, "stock-page", id] as const,
+  stockHistory: (ws: string, id: string) => [ws, "stock-history", id] as const,
 };
 
 // --- Markets -----------------------------------------------------------------
@@ -115,6 +119,71 @@ export function useRemoveWatch() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/watchlist/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.watchlist(ws) }),
+  });
+}
+
+// --- Stock page (the compiled per-ticker view) -------------------------------
+
+/** The compiled stock page for a watchlist entry: both measures, detailed +
+ *  summarised. The server never compiles on the request path — while a measure
+ *  is still being built it answers 202, and this hook polls until it's ready.
+ *  Returns `{ ready, page }`: `page` is null until `ready` is true. */
+export function useStockPage(watchId: string | null) {
+  const ws = useWorkspaceId();
+  return useQuery({
+    queryKey: keys.stockPage(ws, watchId ?? "none"),
+    queryFn: ({ signal }) =>
+      api
+        .get<StockPage | { status: string; ticker: string }>(
+          `/watchlist/${watchId}/page/`,
+          { signal },
+        )
+        .then((r) => ({
+          ready: r.status === 200,
+          page: r.status === 200 ? (r.data as StockPage) : null,
+        })),
+    enabled: !!watchId,
+    // Poll only while the page is still compiling; stop once it's ready.
+    refetchInterval: (query) =>
+      query.state.data && !query.state.data.ready ? 2500 : false,
+  });
+}
+
+export function useRefreshStockPage() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    // Fire-and-forget: the server recomputes on the worker fleet and returns 202.
+    // Invalidate so the page query refetches (and then polls) for the fresh data.
+    mutationFn: (watchId: string) =>
+      api.post(`/watchlist/${watchId}/refresh/`).then((r) => r.data),
+    onSuccess: (_data, watchId) => {
+      void qc.invalidateQueries({ queryKey: keys.stockPage(ws, watchId) });
+      void qc.invalidateQueries({ queryKey: keys.stockHistory(ws, watchId) });
+      void qc.invalidateQueries({ queryKey: keys.watchlist(ws) });
+    },
+  });
+}
+
+export function useStockHistory(watchId: string | null) {
+  const ws = useWorkspaceId();
+  return useQuery({
+    queryKey: keys.stockHistory(ws, watchId ?? "none"),
+    queryFn: ({ signal }) =>
+      api.get<StockHistory>(`/watchlist/${watchId}/history/`, { signal }).then((r) => r.data),
+    enabled: !!watchId,
+  });
+}
+
+/** Update a watchlist entry's cadences (n / m) or note. */
+export function useUpdateWatch() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: Partial<Pick<WatchedTicker,
+      "refresh_interval_hours" | "recompute_interval_hours" | "note">> }) =>
+      api.patch<WatchedTicker>(`/watchlist/${id}/`, body).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.watchlist(ws) }),
   });
 }

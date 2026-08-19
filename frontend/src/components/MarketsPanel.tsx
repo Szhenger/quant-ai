@@ -8,13 +8,18 @@ import {
   useWatchlist,
 } from "../api/hooks";
 import LineChart from "./LineChart";
+import StockDetail from "./StockDetail";
 
 function formatValue(v: number | null): string {
   if (v == null || Number.isNaN(v)) return "—";
   return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
-export default function MarketsPanel() {
+export default function MarketsPanel({
+  onCreateAlert,
+}: {
+  onCreateAlert?: (ticker: string) => void;
+}) {
   // `input` is what the user is typing; `ticker` is the committed symbol the
   // analysis query keys on. Re-clicking a cached ticker renders instantly from
   // cache while React Query revalidates in the background.
@@ -22,6 +27,8 @@ export default function MarketsPanel() {
   const [ticker, setTicker] = useState("AAPL");
   const [newTicker, setNewTicker] = useState("");
   const [newNote, setNewNote] = useState("");
+  // The watchlist entry whose compiled stock page is open below.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const analysis = useAnalysis(ticker);
   const prefetchAnalysis = usePrefetchAnalysis();
@@ -60,8 +67,10 @@ export default function MarketsPanel() {
   const indicatorRows = data
     ? Object.entries(data.indicators).map(([key, val]) => ({ key, val }))
     : [];
+  const selected = (watchlist.data ?? []).find((w) => w.id === selectedId) ?? null;
 
   return (
+    <>
     <div className="grid-2">
       <section className="card">
         <h2 className="card-title">Market analysis</h2>
@@ -179,7 +188,10 @@ export default function MarketsPanel() {
               <li key={w.id} className="watchlist-row">
                 <button
                   className="link-ticker"
-                  onClick={() => commit(w.ticker)}
+                  onClick={() => {
+                    commit(w.ticker);
+                    setSelectedId(w.id);
+                  }}
                   // Warm the cache on intent — by click time the analysis is
                   // usually already local, so the chart renders instantly.
                   onMouseEnter={() => prefetchAnalysis(w.ticker)}
@@ -190,7 +202,10 @@ export default function MarketsPanel() {
                 {w.note && <span className="muted"> — {w.note}</span>}
                 <button
                   className="btn small ghost watch-remove"
-                  onClick={() => removeWatch.mutate(w.id)}
+                  onClick={() => {
+                    removeWatch.mutate(w.id);
+                    if (selectedId === w.id) setSelectedId(null);
+                  }}
                   disabled={removeWatch.isPending && removeWatch.variables === w.id}
                   title={`Stop following ${w.ticker}`}
                   aria-label={`Remove ${w.ticker} from watchlist`}
@@ -201,7 +216,12 @@ export default function MarketsPanel() {
             ))}
           </ul>
         )}
+        {(watchlist.data ?? []).length > 0 && !selected && (
+          <p className="muted small">Click a ticker to open its compiled stock page.</p>
+        )}
       </section>
     </div>
+    {selected && <StockDetail watch={selected} onCreateAlert={onCreateAlert} />}
+    </>
   );
 }

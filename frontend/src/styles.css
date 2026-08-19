@@ -744,3 +744,34 @@ textarea {
 /* --- Watchlist rows -------------------------------------------------------- */
 .watchlist-row { display: flex; align-items: center; gap: 6px; }
 .watch-remove { margin-left: auto; }
+
+/* ---------- Stock detail (watchlist MVP) ---------- */
+.stock-detail { margin-top: 16px; }
+.stock-detail-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.measure-block { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+.measure-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.measure-title h3 { margin: 0 0 6px; font-size: 15px; }
+.measure-headline { margin: 4px 0 10px; font-weight: 600; }
+.measure-summary {
+  margin: 4px 0 10px; line-height: 1.55; color: var(--text);
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 12px;
+}
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 12px; }
+.chip {
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--muted);
+}
+.chip b { color: var(--text); font-weight: 600; }
+.news-list { list-style: none; padding: 0; margin: 6px 0 0; }
+.news-list li { padding: 7px 0; border-bottom: 1px solid var(--border); }
+.news-list li:last-child { border-bottom: none; }
+.news-title { color: var(--text); }
+.cadence { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.field input[type="number"] { width: 76px; }
+.row.tight { align-items: center; gap: 6px; }
+details > summary { cursor: pointer; margin: 6px 0; }

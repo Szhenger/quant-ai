@@ -199,10 +199,34 @@ CELERY_BEAT_SCHEDULE = {
         "task": "engine.tasks.prune_expired_records",
         "schedule": 24 * 3600.0,
     },
+    # Watchlist stock pages: refresh due tickers (qualitative every n hours,
+    # macro-quantitative recompute every m hours). The tick is frequent; the
+    # per-ticker n/m intervals decide what actually recompiles each pass.
+    "refresh-stock-pages": {
+        "task": "engine.tasks.refresh_stock_pages",
+        "schedule": float(os.environ.get("STOCKPAGE_SWEEP_SECONDS", str(30 * 60))),
+    },
 }
 
 # How long fired alerts are kept before the daily retention job deletes them.
 ALERT_RETENTION_DAYS = int(os.environ.get("ALERT_RETENTION_DAYS", "180"))
+
+# --- Watchlist stock pages (the medical-student MVP) -------------------------
+# Each watched ticker compiles a "stock page": a qualitative measure (this
+# week's news, summarised by Claude) and a quantitative measure (the standard
+# indicators over a macro window). Two independent cadences, both client-settable
+# per ticker, defaulting from here:
+#   n = how often the qualitative/weekly view refreshes (cheap, frequent);
+#   m = how often the macro quantitative measure is recomputed. On each recompute
+#       the previous measure is retained, gzip-compressed, for continuity.
+STOCKPAGE_REFRESH_INTERVAL_HOURS = int(os.environ.get("STOCKPAGE_REFRESH_INTERVAL_HOURS", "6"))   # n
+STOCKPAGE_RECOMPUTE_INTERVAL_HOURS = int(os.environ.get("STOCKPAGE_RECOMPUTE_INTERVAL_HOURS", "24"))  # m
+# How many compressed prior quantitative measures to keep per ticker.
+STOCKPAGE_SNAPSHOT_RETENTION = int(os.environ.get("STOCKPAGE_SNAPSHOT_RETENTION", "30"))
+# The qualitative measure covers "this week"; the quantitative measure is macro.
+STOCKPAGE_NEWS_WINDOW_DAYS = int(os.environ.get("STOCKPAGE_NEWS_WINDOW_DAYS", "7"))
+STOCKPAGE_NEWS_LIMIT = int(os.environ.get("STOCKPAGE_NEWS_LIMIT", "8"))
+STOCKPAGE_MACRO_DAYS = int(os.environ.get("STOCKPAGE_MACRO_DAYS", "180"))
 
 # Consecutive evaluation failures before a strategy is auto-paused to FAILED
 # (the circuit breaker). Reactivating the strategy re-arms it.

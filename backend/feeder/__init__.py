@@ -20,6 +20,7 @@ from .conditions import (
     primary_metric,
     representative_fields,
 )
+from .stockpage import build_quantitative, build_qualitative
 
 __all__ = [
     "get_provider",
@@ -43,4 +44,7 @@ __all__ = [
     "describe_tree",
     "primary_metric",
     "representative_fields",
+    # Stock-page compilation (watchlist MVP)
+    "build_quantitative",
+    "build_qualitative",
 ]

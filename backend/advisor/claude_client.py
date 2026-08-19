@@ -149,3 +149,87 @@ class ClaudeClient:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Claude assessment failed (%s); firing on quant condition only.", exc)
             return AlertVerdict(True, f"AI assessment error; fired on quant condition. ({exc})", 0.5, False)
+
+    def summarize_news(
+        self,
+        *,
+        ticker: str,
+        news: Optional[List[dict]] = None,
+        data_is_synthetic: bool = False,
+    ) -> "NewsSummary":
+        """Summarise this week's headlines for a ticker into a short briefing.
+
+        The qualitative half of a stock page. Degrades gracefully: with no API
+        key (or the SDK missing / an API error) it returns a deterministic
+        fallback that still lists how many headlines were found, so the page is
+        useful without an LLM. Never raises.
+        """
+        items = list(news or [])
+        if not items:
+            return NewsSummary(
+                text="No recent headlines were found for this company this week.",
+                source="fallback",
+            )
+        if not self.enabled:
+            return NewsSummary(text=_fallback_news_text(items), source="fallback")
+        try:
+            import anthropic
+        except ImportError:
+            logger.warning("anthropic SDK not installed; using fallback news summary.")
+            return NewsSummary(text=_fallback_news_text(items), source="fallback")
+
+        headlines = "\n".join(
+            f"- {n.get('title', '')} [{n.get('source', '?')}]" for n in items
+        )
+        system = (
+            "You are a financial news analyst briefing a non-expert (a busy "
+            "medical student who follows the market). Summarise the week's "
+            "headlines for one company into 2-4 plain-language sentences: the "
+            "overall tone (positive / negative / mixed), the concrete drivers, "
+            "and anything a casual investor should note. No jargon, no advice, "
+            "no preamble — just the briefing."
+        )
+        if data_is_synthetic:
+            system += (
+                " IMPORTANT: these headlines are SYNTHETIC placeholder data, not "
+                "real news. Say so plainly and keep it high-level."
+            )
+        user = f"Company ticker: {ticker}\n\nThis week's headlines:\n{headlines}"
+        try:
+            client = anthropic.Anthropic(
+                api_key=self.api_key,
+                timeout=float(getattr(settings, "ANTHROPIC_TIMEOUT_SECONDS", 30.0)),
+                max_retries=1,
+            )
+            response = client.messages.create(
+                model=self.model,
+                max_tokens=1024,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            if getattr(response, "stop_reason", None) == "refusal":
+                return NewsSummary(text=_fallback_news_text(items), source="fallback")
+            text = "".join(
+                b.text for b in response.content if getattr(b, "type", None) == "text"
+            ).strip()
+            if not text:
+                return NewsSummary(text=_fallback_news_text(items), source="fallback")
+            return NewsSummary(text=text, source="claude")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Claude news summary failed (%s); using fallback.", exc)
+            return NewsSummary(text=_fallback_news_text(items), source="fallback")
+
+
+@dataclass
+class NewsSummary:
+    text: str
+    source: str  # "claude" | "fallback"
+
+
+def _fallback_news_text(items: List[dict]) -> str:
+    n = len(items)
+    lead = items[0].get("title", "").strip() if items else ""
+    head = f"{n} recent headline{'s' if n != 1 else ''} found this week"
+    if lead:
+        return f"{head}; the latest: “{lead}”. (AI summary unavailable — full list below.)"
+    return f"{head}. (AI summary unavailable — full list below.)"

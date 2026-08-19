@@ -26,6 +26,12 @@ export interface WatchedTicker {
   id: string;
   ticker: string;
   note: string;
+  // n / m: per-ticker refresh (qualitative) and recompute (quantitative) cadences.
+  refresh_interval_hours: number;
+  recompute_interval_hours: number;
+  refreshed_at: string | null;
+  recomputed_at: string | null;
+  has_page: boolean;
   created_at: string;
 }
 
@@ -65,6 +71,79 @@ export interface MarketAnalysis {
   closes: number[];
   latest_price: number;
   indicators: Record<string, MarketIndicatorValue | null>;
+}
+
+// --- Stock page (watchlist MVP): the two measures, detailed + summarised ------
+
+export interface NewsItem {
+  title: string;
+  source: string;
+  published_at: string | number | null;
+}
+
+export interface WeekView {
+  dates: string[];
+  closes: number[];
+  start: string | null;
+  end: string | null;
+  change_pct: number | null;
+}
+
+export interface QuantMeasure {
+  key: string;
+  label: string;
+  unit: string;
+  value: number | null;
+  reading: string;
+}
+
+export interface QuantitativeSummary {
+  latest_price: number | null;
+  week_change_pct: number | null;
+  headline: string;
+  measures: QuantMeasure[];
+}
+
+export interface QuantitativeDetailed extends MarketAnalysis {
+  week: WeekView;
+}
+
+export interface QualitativeDetailed {
+  window_days: number;
+  news: NewsItem[];
+  summary: string;
+  summary_source: "claude" | "fallback";
+  synthetic: boolean;
+}
+
+export interface QualitativeSummary {
+  headline: string;
+  article_count: number;
+  summary_source: "claude" | "fallback";
+}
+
+export interface StockPage {
+  ticker: string;
+  quantitative: QuantitativeDetailed;
+  quantitative_summary: QuantitativeSummary;
+  qualitative: QualitativeDetailed;
+  qualitative_summary: QualitativeSummary;
+  data_synthetic: boolean;
+  refreshed_at: string | null;
+  recomputed_at: string | null;
+  refresh_interval_hours: number;
+  recompute_interval_hours: number;
+}
+
+export interface QuantSnapshotEntry {
+  taken_at: string;
+  recomputed_at: string | null;
+  summary: QuantitativeSummary | null;
+}
+
+export interface StockHistory {
+  ticker: string;
+  snapshots: QuantSnapshotEntry[];
 }
 
 export type StrategyStatus = string;
