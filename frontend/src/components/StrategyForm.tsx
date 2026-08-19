@@ -6,9 +6,10 @@ import type { Indicator } from "../api/types";
 
 interface StrategyFormProps {
   onCreated: () => void;
+  initialTicker?: string;
 }
 
-export default function StrategyForm({ onCreated }: StrategyFormProps) {
+export default function StrategyForm({ onCreated, initialTicker }: StrategyFormProps) {
   // Shared React Query catalog (staleTime: Infinity): one fetch per session,
   // deduped with any other mounted consumer (e.g. the graph builder), and
   // properly aborted if this form unmounts mid-flight.
@@ -16,7 +17,7 @@ export default function StrategyForm({ onCreated }: StrategyFormProps) {
   const catalog = catalogQuery.data ?? null;
 
   const [name, setName] = useState("");
-  const [ticker, setTicker] = useState("AAPL");
+  const [ticker, setTicker] = useState(initialTicker?.toUpperCase() || "AAPL");
   const [indicator, setIndicator] = useState("");
   // Editable indicator parameters (e.g. window/period), seeded from the
   // catalog defaults whenever the indicator changes.

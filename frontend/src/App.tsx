@@ -24,6 +24,15 @@ function Workspace() {
   const logout = useAuthStore((s) => s.logout);
 
   const [tab, setTab] = useState<Tab>("markets");
+  // When the user clicks "Set an alert" on a stock page, jump to Strategies
+  // with the ticker prefilled. Remounting the panel via `alertSeed` applies it.
+  const [alertTicker, setAlertTicker] = useState<string | undefined>(undefined);
+  const [alertSeed, setAlertSeed] = useState(0);
+  const createAlertFor = (ticker: string) => {
+    setAlertTicker(ticker);
+    setAlertSeed((n) => n + 1);
+    setTab("strategies");
+  };
 
   // One socket for the whole session: alerts stream into the query cache on
   // every tab, and the sidebar badge stays live without the Alerts panel mounted.
@@ -85,8 +94,10 @@ function Workspace() {
             panels so their local UI state (selected ticker, open replay row)
             resets with it. */}
         <main className="content" key={workspaceId ?? "none"}>
-          {tab === "markets" && <MarketsPanel />}
-          {tab === "strategies" && <StrategiesPanel />}
+          {tab === "markets" && <MarketsPanel onCreateAlert={createAlertFor} />}
+          {tab === "strategies" && (
+            <StrategiesPanel key={alertSeed} initialTicker={alertTicker} />
+          )}
           {tab === "alerts" && <AlertsPanel />}
         </main>
       </div>
