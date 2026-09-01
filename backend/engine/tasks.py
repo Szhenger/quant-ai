@@ -187,7 +187,8 @@ def _run_evaluation(strategy_id: str):
             # Synthetic headlines can accompany real prices (or vice versa); the
             # alert is "on synthetic data" if either source was fabricated.
             data_synthetic = data_synthetic or any(n.get("source") == "synthetic" for n in news)
-            verdict = ClaudeClient().assess(
+            # Billed against the workspace owner's daily AI budget.
+            verdict = ClaudeClient(user_id=strategy.workspace.owner_id).assess(
                 ticker=strategy.ticker,
                 condition_summary=summary,
                 metric_value=value,
@@ -443,7 +444,7 @@ def compile_stock_qualitative(watched_ticker_id: str):
     except WatchedTicker.DoesNotExist:
         return {"status": "not_found"}
 
-    built = build_qualitative(wt.ticker)
+    built = build_qualitative(wt.ticker, user_id=wt.workspace.owner_id)
     now = timezone.now()
     StockPage.objects.get_or_create(watched_ticker=wt)
     with transaction.atomic():

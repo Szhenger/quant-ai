@@ -19,7 +19,7 @@ pytestmark = pytest.mark.django_db
 # Mirrors `Strategy` in frontend/src/api/types.ts.
 STRATEGY_FIELDS = {
     "id", "name", "ticker", "indicator", "params", "operator", "threshold",
-    "condition", "condition_summary",
+    "condition", "condition_summary", "cost_estimate",
     "ai_enabled", "ai_prompt", "notify_in_app", "notify_email",
     "webhook_url", "webhook_secret", "status", "poll_interval_minutes",
     "cooldown_minutes", "consecutive_failures", "last_evaluated_at",

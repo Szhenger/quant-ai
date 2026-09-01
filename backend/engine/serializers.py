@@ -12,6 +12,7 @@ from feeder import (
     representative_fields,
 )
 from .models import Strategy, Alert
+from .limits import estimate_strategy_cost
 
 # Upper bound on the free-text prompt forwarded to the AI on every evaluation.
 # Unbounded, it is a cost-amplification vector: N strategies x 1-minute polls
@@ -30,13 +31,16 @@ class StrategySerializer(serializers.ModelSerializer):
     # strategies the flat columns only show a representative leaf, which is not
     # what the user authored.
     condition_summary = serializers.SerializerMethodField()
+    # Read-only: what this strategy costs the fleet per day (evaluations, and
+    # the ceiling on paid AI calls) — shown in the list and echoed on create.
+    cost_estimate = serializers.SerializerMethodField()
 
     class Meta:
         model = Strategy
         fields = (
             "id", "name", "ticker",
             "indicator", "params", "operator", "threshold", "condition",
-            "condition_summary",
+            "condition_summary", "cost_estimate",
             "ai_enabled", "ai_prompt",
             "notify_in_app", "notify_email", "webhook_url", "webhook_secret",
             "status", "poll_interval_minutes", "cooldown_minutes",
@@ -45,7 +49,7 @@ class StrategySerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         )
         read_only_fields = (
-            "id", "webhook_secret", "condition_summary", "consecutive_failures",
+            "id", "webhook_secret", "condition_summary", "cost_estimate", "consecutive_failures",
             "last_evaluated_at", "last_triggered_at", "last_metric_value",
             "last_error", "created_at", "updated_at",
         )
@@ -62,6 +66,11 @@ class StrategySerializer(serializers.ModelSerializer):
             return describe_tree(obj.condition_tree())
         except Exception:  # noqa: BLE001 — display-only; never fail a list over it
             return ""
+
+    def get_cost_estimate(self, obj) -> dict:
+        return estimate_strategy_cost(
+            obj.poll_interval_minutes, obj.cooldown_minutes, obj.ai_enabled,
+        )
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

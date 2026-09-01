@@ -88,6 +88,7 @@ export function useAlertsSocket(): void {
             void qc.invalidateQueries({ queryKey: keys.stockPage(workspaceId, watchId) });
             void qc.invalidateQueries({ queryKey: keys.stockHistory(workspaceId, watchId) });
             void qc.invalidateQueries({ queryKey: keys.watchlist(workspaceId) });
+            void qc.invalidateQueries({ queryKey: keys.limits(workspaceId) });
             return;
           }
           case "strategy.evaluated": {
@@ -96,6 +97,7 @@ export function useAlertsSocket(): void {
               value: ev.value,
             } as EvaluateResult);
             void qc.invalidateQueries({ queryKey: keys.strategies(workspaceId) });
+            void qc.invalidateQueries({ queryKey: keys.limits(workspaceId) });
             return;
           }
           default:

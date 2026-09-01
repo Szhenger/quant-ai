@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import transaction
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers as rf_serializers
@@ -11,6 +12,7 @@ from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from identity.caching import cached_compute, conditional_response, stable_key
+from identity.models import Workspace
 from identity.validators import normalize_ticker
 from identity.workspaces import resolve_active_workspace
 from feeder import (
@@ -25,6 +27,7 @@ from feeder import (
 from .models import Strategy, Alert, _new_webhook_secret
 from .serializers import StrategySerializer, AlertSerializer
 from .compiler import compile_graph, GraphCompilationError
+from .limits import account_limits, ensure_strategy_capacity
 
 
 def _provenance_ttl(base_ttl):
@@ -66,8 +69,19 @@ class StrategyViewSet(viewsets.ModelViewSet):
         return Strategy.objects.filter(workspace=workspace)
 
     def perform_create(self, serializer):
-        workspace = resolve_active_workspace(self.request)
-        serializer.save(workspace=workspace)
+        self._create_within_cap(serializer, resolve_active_workspace(self.request))
+
+    @staticmethod
+    def _create_within_cap(serializer, workspace) -> None:
+        """Persist a new strategy unless the workspace is at its cap.
+
+        The count-then-insert runs under the workspace's row lock, so two
+        concurrent creates at cap-1 serialise: the second sees the first's
+        row and is rejected, instead of both slipping past the same count."""
+        with transaction.atomic():
+            Workspace.objects.select_for_update().get(pk=workspace.pk)
+            ensure_strategy_capacity(workspace)
+            serializer.save(workspace=workspace)
 
     @extend_schema(request=OpenApiTypes.OBJECT, responses={201: StrategySerializer})
     @action(detail=False, methods=["post"], url_path="deploy-graph")
@@ -98,7 +112,7 @@ class StrategyViewSet(viewsets.ModelViewSet):
                 data[field] = payload[field]
         serializer = self.get_serializer(data=data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(workspace=workspace)
+        self._create_within_cap(serializer, workspace)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     @extend_schema(request=None, responses=StrategySerializer)
@@ -324,6 +338,17 @@ class MarketAnalysisView(APIView):
             lambda: analyze_market(symbol, days=days),
         )
         return conditional_response(request, payload)
+
+
+class LimitsView(APIView):
+    """The account guards this workspace runs under: the strategy cap and how
+    much of it is used, the daily AI-call budget and how much is spent. The
+    console reads it next to every deploy button."""
+
+    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id="account_limits")
+    def get(self, request):
+        workspace = resolve_active_workspace(request)
+        return Response(account_limits(workspace, request.user))
 
 
 class IndicatorCatalogView(APIView):

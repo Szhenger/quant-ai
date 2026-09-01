@@ -23,6 +23,7 @@ import "reactflow/dist/style.css";
 import { extractError } from "../api/errors";
 import { useDeployGraph, useIndicatorCatalog } from "../api/hooks";
 import type { IndicatorCatalog } from "../api/types";
+import CostEstimate, { useAtStrategyCap } from "./CostEstimate";
 import {
   DEFAULT_DELIVERY,
   DeliveryChecks,
@@ -237,6 +238,7 @@ function BuilderCanvas() {
   const catalogQuery = useIndicatorCatalog();
   const catalog = catalogQuery.data ?? null;
   const deploy = useDeployGraph();
+  const atCap = useAtStrategyCap();
   const [error, setError] = useState<string | null>(null);
   const counter = useRef(2);
 
@@ -329,8 +331,13 @@ function BuilderCanvas() {
         />
         <button className="btn ghost" onClick={addQuant} type="button">+ Condition</button>
         <button className="btn ghost" onClick={addLogic} type="button">+ AND/OR</button>
-        <button className="btn primary" onClick={onDeploy} disabled={deploy.isPending}>
-          {deploy.isPending ? "Deploying…" : "Deploy graph"}
+        <button
+          className="btn primary"
+          onClick={onDeploy}
+          disabled={deploy.isPending || atCap}
+          title={atCap ? "This workspace is at its strategy cap — delete one to add another" : undefined}
+        >
+          {deploy.isPending ? "Deploying…" : atCap ? "Workspace at cap" : "Deploy graph"}
         </button>
       </div>
 
@@ -340,6 +347,8 @@ function BuilderCanvas() {
       <div className="builder-toolbar">
         <DeliveryChecks value={delivery} onChange={setDelivery} />
       </div>
+      {/* The AI node on the canvas is what turns AI on for a graph strategy. */}
+      <CostEstimate delivery={delivery} aiEnabled={nodes.some((n) => n.type === "ai")} />
 
       {catalogQuery.isError && (
         <div className="alert error">

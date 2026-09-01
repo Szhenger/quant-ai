@@ -180,7 +180,12 @@ Three seams keep the stack honest, and each has an executable pin:
 - **Bounded resources** — client-supplied page sizes are capped
   (`config/pagination.py`); the alerts table and token blacklist are pruned daily;
   Celery results expire after 1 h; compute-heavy endpoints carry scoped throttles
-  (evaluate 20/min, replay 30/min, analysis 120/min).
+  (evaluate 20/min, replay 30/min, analysis 120/min). Two account guards bound what
+  one user can make the fleet do (`engine/limits.py`, `advisor/budget.py`): a
+  per-workspace strategy cap enforced under the workspace row lock, and a per-user
+  daily budget of paid AI calls that fails open to the no-AI paths. Both are exposed
+  at `GET /limits/`, and every strategy carries a `cost_estimate` (evaluations/day,
+  max AI calls/day) so the cost is visible before deploy.
 - **Performance** — repeated bar fetches for the same ticker collapse to one upstream
   call per TTL window via the fleet-wide shared cache with a single-flight lock;
   analysis/replay payloads are cached (120 s / 600 s; 30 s when synthetic); responses
