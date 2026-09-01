@@ -3,10 +3,12 @@ import { extractError } from "../api/errors";
 import {
   useAddWatch,
   useAnalysis,
+  useIndicatorCatalog,
   usePrefetchAnalysis,
   useRemoveWatch,
   useWatchlist,
 } from "../api/hooks";
+import { readIndicator } from "../api/readings";
 import LineChart from "./LineChart";
 import StockDetail from "./StockDetail";
 
@@ -31,6 +33,9 @@ export default function MarketsPanel({
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const analysis = useAnalysis(ticker);
+  // The field registry: wording each value the same way the stock page does.
+  const catalog = useIndicatorCatalog().data;
+  const specOf = (key: string) => catalog?.indicators.find((i) => i.key === key);
   const prefetchAnalysis = usePrefetchAnalysis();
   const watchlist = useWatchlist();
   const addWatch = useAddWatch();
@@ -132,6 +137,7 @@ export default function MarketsPanel({
                   <th>Indicator</th>
                   <th className="num">Value</th>
                   <th>Unit</th>
+                  <th>Reading</th>
                 </tr>
               </thead>
               <tbody>
@@ -140,6 +146,7 @@ export default function MarketsPanel({
                     <td>{val ? val.label : key}</td>
                     <td className="num">{formatValue(val ? val.value : null)}</td>
                     <td className="muted">{val?.unit || ""}</td>
+                    <td className="muted">{readIndicator(specOf(key), val ? val.value : null)}</td>
                   </tr>
                 ))}
               </tbody>

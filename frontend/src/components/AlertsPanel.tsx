@@ -7,7 +7,7 @@ import {
   useUnreadCount,
 } from "../api/hooks";
 import { flattenPages } from "../realtime/merge";
-import { useRealtimeStore } from "../realtime/useAlertsSocket";
+import { useRealtimeStore } from "../realtime/store";
 import AlertDetail from "./AlertDetail";
 
 function formatDate(iso: string): string {

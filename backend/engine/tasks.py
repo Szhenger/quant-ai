@@ -42,6 +42,7 @@ from feeder import (
 )
 from .models import Strategy, Alert
 from .delivery import deliver_alert, deliver_alert_channel, notify_strategy_failed
+from .events import STOCKPAGE_UPDATED, STRATEGY_EVALUATED, publish
 
 logger = logging.getLogger(__name__)
 
@@ -125,9 +126,19 @@ def evaluate_strategy(self, strategy_id: str, rescheduled: bool = False):
                              countdown=EVAL_LOCK_TTL)
         return {"status": "locked", "strategy_id": strategy_id}
     try:
-        return _run_evaluation(strategy_id)
+        result = _run_evaluation(strategy_id)
     finally:
         cache.delete(key)
+    # Push the outcome so the console refreshes the row now, not on its next
+    # poll: the workspace is looked up here (one indexed read) because the
+    # evaluation may have ended before it ever loaded the strategy.
+    workspace_id = Strategy.objects.filter(pk=strategy_id).values_list(
+        "workspace_id", flat=True
+    ).first()
+    if workspace_id is not None:
+        publish(workspace_id, STRATEGY_EVALUATED, strategy_id=strategy_id,
+                status=result.get("status"), value=result.get("value"))
+    return result
 
 
 def _persist_eval(strategy: Strategy, value, now):
@@ -139,8 +150,6 @@ def _persist_eval(strategy: Strategy, value, now):
     strategy.save(update_fields=[
         "last_metric_value", "last_evaluated_at", "last_error", "consecutive_failures",
     ])
-
-
 
 
 def _run_evaluation(strategy_id: str):
@@ -355,10 +364,10 @@ def prune_expired_records():
 #     snapshot of the previous measure for continuity.
 # ``refresh_stock_pages`` (Beat) fans out the due work; the two compile tasks do
 # the compute and persist. The API never runs a compile in-request: a page that
-# isn't ready is warmed with ``.delay`` and the client polls (see
-# ``identity.views.WatchedTickerViewSet``). Each compile task clears its
-# per-measure warm marker on completion, which is how the page endpoint knows
-# whether a refresh is still in flight.
+# isn't ready is warmed with ``.delay`` (see ``identity.views``). On completion
+# each compile task clears its per-measure warm marker (how the page endpoint
+# reports ``refreshing``) and publishes ``stockpage.updated`` to the workspace
+# socket (how the console knows to refetch without polling).
 # --------------------------------------------------------------------------- #
 def _compress_measure(payload: dict) -> bytes:
     return gzip.compress(json.dumps(payload, separators=(",", ":")).encode())
@@ -419,6 +428,8 @@ def compile_stock_quantitative(watched_ticker_id: str, snapshot_previous: bool =
     # After the commit: the page endpoint stops reporting ``refreshing`` for
     # this measure only once the fresh numbers are actually readable.
     cache.delete(stockpage_warm_key(wt.id, "quantitative"))
+    publish(wt.workspace_id, STOCKPAGE_UPDATED,
+            watch_id=str(wt.id), ticker=wt.ticker, measure="quantitative")
     return {"status": "recomputed", "ticker": wt.ticker}
 
 
@@ -446,6 +457,8 @@ def compile_stock_qualitative(watched_ticker_id: str):
             "refreshed_at", "updated_at",
         ])
     cache.delete(stockpage_warm_key(wt.id, "qualitative"))
+    publish(wt.workspace_id, STOCKPAGE_UPDATED,
+            watch_id=str(wt.id), ticker=wt.ticker, measure="qualitative")
     return {"status": "refreshed", "ticker": wt.ticker}
 
 

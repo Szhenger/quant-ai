@@ -21,12 +21,8 @@ from typing import List, Optional
 
 from django.conf import settings
 
-from .indicators import analyze_market
+from .indicators import analyze_market, read_indicator, summary_indicators
 from .providers import get_provider
-
-# Indicators surfaced in the quantitative *summary* (the detailed form keeps the
-# full catalog). These are the ones a non-expert reads first.
-_SUMMARY_INDICATORS = ("RSI", "Z_SCORE", "VOLATILITY", "PCT_CHANGE")
 
 
 def _macro_days() -> int:
@@ -44,37 +40,6 @@ def _news_limit() -> int:
 # --------------------------------------------------------------------------- #
 # Quantitative measure (macroscale)
 # --------------------------------------------------------------------------- #
-def _reading(indicator: str, value: Optional[float]) -> str:
-    """A one-word plain-language reading of an indicator value for a non-expert."""
-    if value is None:
-        return "not enough history yet"
-    if indicator == "RSI":
-        if value < 30:
-            return "oversold"
-        if value > 70:
-            return "overbought"
-        return "neutral"
-    if indicator == "Z_SCORE":
-        if value <= -2:
-            return "unusually cheap vs. its recent average"
-        if value >= 2:
-            return "unusually expensive vs. its recent average"
-        return "near its recent average"
-    if indicator == "VOLATILITY":
-        if value >= 40:
-            return "highly volatile"
-        if value <= 15:
-            return "calm"
-        return "moderate volatility"
-    if indicator == "PCT_CHANGE":
-        if value > 0:
-            return "up over the window"
-        if value < 0:
-            return "down over the window"
-        return "flat"
-    return ""
-
-
 def _week_view(dates: List[str], closes: List[float]) -> dict:
     """The last week of price action, sliced from the macro series for display."""
     week = _news_window_days()
@@ -99,8 +64,10 @@ def build_quantitative(ticker: str, days: Optional[int] = None) -> dict:
     indicators = analysis.get("indicators", {}) or {}
     week = _week_view(analysis.get("dates", []), analysis.get("closes", []))
 
+    # Which fields lead the summary, and how each value reads in words, both
+    # come from the field registry (INDICATOR_SPECS) — not from this file.
     measures = []
-    for key in _SUMMARY_INDICATORS:
+    for key in summary_indicators():
         cell = indicators.get(key)
         if not cell:
             continue
@@ -109,7 +76,7 @@ def build_quantitative(ticker: str, days: Optional[int] = None) -> dict:
             "label": cell.get("label", key),
             "unit": cell.get("unit", ""),
             "value": cell.get("value"),
-            "reading": _reading(key, cell.get("value")),
+            "reading": read_indicator(key, cell.get("value")),
         })
 
     latest = analysis.get("latest_price")

@@ -56,6 +56,11 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
         lifecycle notifications (e.g. a circuit breaker tripping to FAILED)."""
         await self.send_json({"type": "strategy_status", "strategy": event["data"]})
 
+    async def workspace_event(self, event):
+        """Handler for {'type': 'workspace.event', 'data': {event, ...}} group
+        sends (see engine/events.py): a state change the client should refetch."""
+        await self.send_json({"type": "event", **event["data"]})
+
     @database_sync_to_async
     def _owns(self, user, workspace_id):
         # workspace_id is already a validated canonical UUID string here.

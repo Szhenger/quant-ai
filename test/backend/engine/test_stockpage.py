@@ -8,6 +8,7 @@ import pytest
 from django.test import override_settings
 from django.utils import timezone
 
+from feeder import NO_HISTORY_READING, INDICATOR_SPECS, read_indicator, summary_indicators
 from feeder.stockpage import build_quantitative, build_qualitative, _within_week
 from identity.models import WatchedTicker, StockPage, QuantSnapshot
 from engine.tasks import (
@@ -39,6 +40,31 @@ def test_build_quantitative_has_detailed_and_summary():
     keys = {m["key"] for m in summary["measures"]}
     assert {"RSI", "VOLATILITY"} & keys
     assert all("reading" in m for m in summary["measures"])
+
+
+def test_summary_measures_come_from_the_field_registry():
+    """Which fields lead the summary, and how a value reads in words, are
+    both declared on the field spec — the stock page just applies them."""
+    out = build_quantitative("AAPL")
+    keys = [m["key"] for m in out["summary"]["measures"]]
+    assert keys == [k for k in summary_indicators() if k in keys]
+    for m in out["summary"]["measures"]:
+        assert m["reading"] == read_indicator(m["key"], m["value"])
+
+
+def test_read_indicator_applies_bands_in_order():
+    assert read_indicator("RSI", 25.0) == "oversold"
+    assert read_indicator("RSI", 75.0) == "overbought"
+    assert read_indicator("RSI", 50.0) == "neutral"
+    assert read_indicator("Z_SCORE", -2.0) == "unusually cheap vs. its recent average"
+    assert read_indicator("VOLATILITY", 15.0) == "calm"
+    assert read_indicator("PCT_CHANGE", 0.0) == "flat"
+    assert read_indicator("RSI", None) == NO_HISTORY_READING
+    assert read_indicator("PRICE", 123.0) == ""  # no bands declared
+    # Every declared band list ends in a catch-all, so a valued field always reads.
+    for key, spec in INDICATOR_SPECS.items():
+        if spec["readings"]:
+            assert "op" not in spec["readings"][-1]
 
 
 def test_build_qualitative_lists_news_and_summarizes_this_week():

@@ -1,11 +1,13 @@
 import { FormEvent, useEffect, useState } from "react";
 import { extractError } from "../api/errors";
 import {
+  useIndicatorCatalog,
   useStockPage,
   useStockHistory,
   useRefreshStockPage,
   useUpdateWatch,
 } from "../api/hooks";
+import { readIndicator } from "../api/readings";
 import type { WatchedTicker } from "../api/types";
 import LineChart from "./LineChart";
 
@@ -40,6 +42,8 @@ export default function StockDetail({
   const history = useStockHistory(watch.id);
   const refresh = useRefreshStockPage();
   const updateWatch = useUpdateWatch();
+  const catalog = useIndicatorCatalog().data;
+  const specOf = (key: string) => catalog?.indicators.find((i) => i.key === key);
 
   // Interval bounds mirror the backend model validators.
   const N_MAX = 720; // 30 days
@@ -145,6 +149,7 @@ export default function StockDetail({
                     <th>Indicator</th>
                     <th className="num">Value</th>
                     <th>Unit</th>
+                    <th>Reading</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -153,6 +158,7 @@ export default function StockDetail({
                       <td>{val ? val.label : key}</td>
                       <td className="num">{num(val ? val.value : null, 4)}</td>
                       <td className="muted">{val?.unit || ""}</td>
+                      <td className="muted">{readIndicator(specOf(key), val ? val.value : null)}</td>
                     </tr>
                   ))}
                 </tbody>

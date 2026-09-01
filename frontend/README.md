@@ -18,6 +18,7 @@ src/
 │   ├── client.ts        # the axios instance: JWT + X-Workspace-ID interceptors, single-flight 401 refresh
 │   ├── hooks.ts         # every server read/write as a typed React Query hook (keys namespaced by workspace)
 │   ├── types.ts         # TypeScript shapes of the API payloads (Strategy, Alert, MarketAnalysis, …)
+│   ├── readings.ts      # readIndicator(): word a value from the field registry's reading bands (pure, unit-tested)
 │   └── errors.ts        # extractError(): turn an axios error into a human string
 ├── store/
 │   └── auth.ts          # Zustand store: access/refresh tokens, active workspace, login/register/logout (persisted)
@@ -25,7 +26,8 @@ src/
 │   ├── socket.ts        # a WebSocket that stays up: reconnect w/ backoff+jitter, heartbeat ping/pong
 │   ├── backoff.ts       # the reconnect pacing math (pure, unit-tested)
 │   ├── merge.ts         # cache-merge helpers: dedup on socket prepend, optimistic read-state (pure, unit-tested)
-│   └── useAlertsSocket.ts # app-level wiring: one socket per session, alerts land in the query cache
+│   ├── store.ts         # Zustand: socket status, strategy notices, worker evaluation outcomes
+│   └── useAlertsSocket.ts # app-level wiring: one socket per session; alerts land in the query cache, events invalidate it
 ├── components/
 │   ├── MarketsPanel.tsx        # search a ticker → price series + every indicator; manage the watchlist
 │   ├── StrategiesPanel.tsx     # list strategies, evaluate one on demand, host the two builders
@@ -95,6 +97,15 @@ product here, so `realtime/socket.ts` adds what the primitive lacks:
 - incoming alerts land in the **React Query cache** (`merge.ts`), de-duplicated by id against
   every cached page — the same alert arriving over the socket *and* in a racing background
   refetch renders exactly once. That's the client-side half of Chapter 10.
+
+The same socket is also the app's **subscription channel**. Background work on the server
+(a stock page recompiling, a strategy evaluation finishing on a worker) publishes a small
+`{type: "event", event: "stockpage.updated" | "strategy.evaluated", ...ids}` frame to the
+workspace group (`backend/engine/events.py`), and `useAlertsSocket.ts` invalidates the matching
+React Query key so the panel refetches through the normal authenticated REST path. Events carry
+identifiers, never data. The old timers (a 30s strategies poll, a 2.5s stock-page poll) still
+exist in `api/hooks.ts` but only run while the socket is down — see `useSocketLive()` in
+`realtime/store.ts` — so a broken connection degrades to polling rather than to a frozen screen.
 
 The **Live / Connecting / Offline** dot in the Alerts panel reflects the socket's true state.
 
