@@ -17,6 +17,8 @@ from typing import List, Optional
 
 from django.conf import settings
 
+from .budget import reserve_call
+
 logger = logging.getLogger(__name__)
 
 # JSON schema Claude must return (structured outputs).
@@ -41,13 +43,22 @@ class AlertVerdict:
 
 
 class ClaudeClient:
-    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None,
+                 user_id=None):
         self.api_key = api_key if api_key is not None else getattr(settings, "ANTHROPIC_API_KEY", "")
         self.model = model or getattr(settings, "ANTHROPIC_MODEL", "claude-opus-5")
+        # The account every paid call is charged against (advisor.budget).
+        # None = ungated; every production caller passes the workspace owner.
+        self.user_id = user_id
 
     @property
     def enabled(self) -> bool:
         return bool(self.api_key)
+
+    def _within_budget(self) -> bool:
+        """Reserve one call against the user's daily budget. Checked only on
+        the paid path — a disabled client (no key, no SDK) spends nothing."""
+        return reserve_call(self.user_id)
 
     def assess(
         self,
@@ -83,6 +94,14 @@ class ClaudeClient:
         except ImportError:
             logger.warning("anthropic SDK not installed; firing on quant condition only.")
             return AlertVerdict(True, "AI SDK unavailable; fired on quant condition only.", 0.5, False)
+        if not self._within_budget():
+            # Fail open, same as an API outage: the quantitative alert still
+            # fires, it just isn't contextualised — and the rationale says why.
+            logger.warning("AI daily budget exhausted for user %s; firing on quant condition only.",
+                           self.user_id)
+            return AlertVerdict(
+                True, "AI daily budget exhausted; fired on quant condition only.", 0.5, False,
+            )
 
         headlines = "\n".join(
             f"- {n.get('title', '')} [{n.get('source', '?')}]" for n in (news or [])
@@ -176,6 +195,10 @@ class ClaudeClient:
             import anthropic
         except ImportError:
             logger.warning("anthropic SDK not installed; using fallback news summary.")
+            return NewsSummary(text=_fallback_news_text(items), source="fallback")
+        if not self._within_budget():
+            logger.warning("AI daily budget exhausted for user %s; using fallback news summary.",
+                           self.user_id)
             return NewsSummary(text=_fallback_news_text(items), source="fallback")
 
         headlines = "\n".join(

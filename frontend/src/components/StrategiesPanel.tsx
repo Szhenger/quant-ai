@@ -3,6 +3,7 @@ import { extractError } from "../api/errors";
 import {
   useDeleteStrategy,
   useEvaluateStrategy,
+  useLimits,
   useStrategies,
   useUpdateStrategy,
 } from "../api/hooks";
@@ -64,6 +65,7 @@ function describeEvalResult(data: EvaluateResult): EvalDisplay {
 
 export default function StrategiesPanel({ initialTicker }: { initialTicker?: string } = {}) {
   const strategies = useStrategies();
+  const limits = useLimits().data;
   const evaluate = useEvaluateStrategy();
   const remove = useDeleteStrategy();
 
@@ -148,13 +150,23 @@ export default function StrategiesPanel({ initialTicker }: { initialTicker?: str
       <section className="card">
         <div className="card-head">
           <h2 className="card-title">Strategies</h2>
-          <button
-            className="btn ghost"
-            onClick={() => void strategies.refetch()}
-            disabled={strategies.isFetching}
-          >
-            {strategies.isFetching ? "Refreshing…" : "Refresh"}
-          </button>
+          <div className="row gap">
+            {limits && (
+              <span className="muted small" title="Account guards: strategy cap and daily AI-call budget (resets at UTC midnight)">
+                {limits.strategy_cap > 0
+                  ? `${limits.strategy_count} of ${limits.strategy_cap} strategies`
+                  : `${limits.strategy_count} strategies`}
+                {" · "}AI calls today {limits.ai_calls_today} of {limits.ai_daily_budget}
+              </span>
+            )}
+            <button
+              className="btn ghost"
+              onClick={() => void strategies.refetch()}
+              disabled={strategies.isFetching}
+            >
+              {strategies.isFetching ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
         {strategyNotice && (
@@ -199,10 +211,16 @@ export default function StrategiesPanel({ initialTicker }: { initialTicker?: str
                           {s.condition != null && <span className="badge status">composite</span>}
                         </td>
                         <td>{s.ticker}</td>
-                        <td className="mono">
+                        <td>
                           {/* The real firing rule — for composites the flat
                               columns only hold a representative leaf. */}
-                          {s.condition_summary || `${s.indicator} ${s.operator} ${s.threshold}`}
+                          <span className="mono">
+                            {s.condition_summary || `${s.indicator} ${s.operator} ${s.threshold}`}
+                          </span>
+                          <div className="muted small">
+                            {s.cost_estimate.evaluations_per_day} evals/day
+                            {s.ai_enabled && ` · ≤${s.cost_estimate.ai_calls_per_day_max} AI/day`}
+                          </div>
                         </td>
                         <td>
                           <span className="badge status" title={s.last_error || undefined}>

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { extractError } from "../api/errors";
 import { useCreateStrategy, useIndicatorCatalog } from "../api/hooks";
 import type { Indicator } from "../api/types";
+import CostEstimate, { useAtStrategyCap } from "./CostEstimate";
 import {
   DEFAULT_DELIVERY,
   DeliveryChecks,
@@ -20,6 +21,7 @@ export default function StrategyForm({ initialTicker }: StrategyFormProps) {
   const catalogQuery = useIndicatorCatalog();
   const catalog = catalogQuery.data ?? null;
   const create = useCreateStrategy();
+  const atCap = useAtStrategyCap();
 
   const [name, setName] = useState("");
   const [ticker, setTicker] = useState(initialTicker?.toUpperCase() || "AAPL");
@@ -229,10 +231,17 @@ export default function StrategyForm({ initialTicker }: StrategyFormProps) {
         </label>
       )}
 
+      <CostEstimate delivery={delivery} aiEnabled={aiEnabled} />
+
       {error && <div className="alert error">{error}</div>}
 
-      <button className="btn primary" type="submit" disabled={create.isPending}>
-        {create.isPending ? "Creating…" : "Create strategy"}
+      <button
+        className="btn primary"
+        type="submit"
+        disabled={create.isPending || atCap}
+        title={atCap ? "This workspace is at its strategy cap — delete one to add another" : undefined}
+      >
+        {create.isPending ? "Creating…" : atCap ? "Workspace at cap" : "Create strategy"}
       </button>
     </form>
   );

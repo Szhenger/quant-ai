@@ -137,9 +137,12 @@ def _within_week(items: List[dict], now: Optional[datetime] = None) -> List[dict
     return kept
 
 
-def build_qualitative(ticker: str, now: Optional[datetime] = None) -> dict:
+def build_qualitative(ticker: str, now: Optional[datetime] = None, user_id=None) -> dict:
     """Compile the qualitative measure: this week's news + a Claude summary,
-    in detailed (full list + summary) and summarised (headline) forms."""
+    in detailed (full list + summary) and summarised (headline) forms.
+
+    ``user_id`` is the account the Claude call is billed against (the
+    workspace owner's daily AI budget); None leaves it ungated."""
     from advisor import ClaudeClient  # local import: advisor is a peer leaf lib
 
     provider = get_provider()
@@ -147,7 +150,7 @@ def build_qualitative(ticker: str, now: Optional[datetime] = None) -> dict:
     news = _within_week(raw, now=now)
     synthetic = any(n.get("source") == "synthetic" for n in news)
 
-    verdict = ClaudeClient().summarize_news(
+    verdict = ClaudeClient(user_id=user_id).summarize_news(
         ticker=ticker.upper().strip(), news=news, data_is_synthetic=synthetic,
     )
     detailed = {

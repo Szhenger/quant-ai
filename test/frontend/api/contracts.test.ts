@@ -18,6 +18,7 @@ import { describe, expect, it } from "vitest";
 import type {
   Alert,
   AuthTokens,
+  CostEstimate,
   MarketAnalysis,
   MarketIndicatorValue,
   ReplayFire,
@@ -41,12 +42,16 @@ function contractKeys<T>(keys: { [K in keyof Required<T>]: true }): string[] {
 const sortedKeys = (o: Record<string, unknown>) => Object.keys(o).sort();
 
 describe("wire-contract fixtures match types.ts", () => {
-  it("Strategy", () => {
-    expect(sortedKeys(load("strategy"))).toEqual(
+  it("Strategy (and its cost estimate)", () => {
+    const fixture = load("strategy");
+    expect(sortedKeys(fixture.cost_estimate as Record<string, unknown>)).toEqual(
+      contractKeys<CostEstimate>({ evaluations_per_day: true, ai_calls_per_day_max: true }),
+    );
+    expect(sortedKeys(fixture)).toEqual(
       contractKeys<Strategy>({
         id: true, name: true, ticker: true, indicator: true, params: true,
         operator: true, threshold: true, condition: true,
-        condition_summary: true, ai_enabled: true,
+        condition_summary: true, cost_estimate: true, ai_enabled: true,
         ai_prompt: true, notify_in_app: true, notify_email: true,
         webhook_url: true, webhook_secret: true, status: true,
         poll_interval_minutes: true, cooldown_minutes: true,

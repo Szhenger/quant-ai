@@ -165,6 +165,26 @@ export interface StockHistory {
 
 export type StrategyStatus = string;
 
+// Upper bounds on what one strategy costs the fleet per day (engine/limits.py):
+// one evaluation per poll interval; with AI on, at most one paid call per
+// cooldown window and never more than one per evaluation.
+export interface CostEstimate {
+  evaluations_per_day: number;
+  ai_calls_per_day_max: number;
+}
+
+// GET /limits/: the account guards this workspace runs under, and how much of
+// each is used. `strategies_remaining` is null when the cap is unlimited.
+export interface Limits {
+  strategy_cap: number;
+  strategy_count: number;
+  strategies_remaining: number | null;
+  ai_daily_budget: number;
+  ai_calls_today: number;
+  ai_calls_remaining: number;
+  ai_budget_resets_at: string;
+}
+
 export interface Strategy {
   id: string;
   name: string;
@@ -179,6 +199,8 @@ export interface Strategy {
   // Read-only: the strategy's real firing rule as one human-readable line,
   // correct for both simple and composite strategies.
   condition_summary: string;
+  // Read-only: evaluations/day and the ceiling on paid AI calls/day.
+  cost_estimate: CostEstimate;
   ai_enabled: boolean;
   ai_prompt: string;
   notify_in_app: boolean;

@@ -709,6 +709,12 @@ textarea {
   stroke-width: 1;
 }
 
+/* --- Cost estimate (shown before deploy) ---------------------------------- */
+.cost-estimate { margin: 0; }
+.cost-estimate b { color: var(--text); font-weight: 600; }
+.cost-estimate.warn { color: var(--warn); }
+.cost-estimate.warn b { color: var(--warn); }
+
 /* --- Strategy editor / webhook secret ------------------------------------- */
 .secret-row {
   display: flex;

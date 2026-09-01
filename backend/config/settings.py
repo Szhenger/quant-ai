@@ -234,6 +234,19 @@ STRATEGY_MAX_CONSECUTIVE_FAILURES = int(
     os.environ.get("STRATEGY_MAX_CONSECUTIVE_FAILURES", "5")
 )
 
+# --- Account guards ------------------------------------------------------------
+# The two knobs that bound what one account can make the fleet (and the
+# operator's Anthropic bill) do. Both are surfaced to the console via
+# GET /limits/ so the user sees the cap before hitting it, and every
+# strategy carries a cost estimate (evaluations/day, max AI calls/day) so the
+# trade-off is visible at deploy time rather than on the invoice.
+# Strategies a single workspace may hold (any status). 0 = unlimited.
+STRATEGY_MAX_PER_WORKSPACE = int(os.environ.get("STRATEGY_MAX_PER_WORKSPACE", "50"))
+# Paid AI calls (alert contextualisation + news summaries) per user per UTC
+# day. Exhaustion fails open: alerts still fire on the quantitative condition,
+# stock pages fall back to the non-AI summary.
+AI_DAILY_CALL_BUDGET = int(os.environ.get("AI_DAILY_CALL_BUDGET", "200"))
+
 # Optional egress proxy for outbound webhook POSTs (e.g. "http://egress:3128").
 # Validation resolves and rejects private addresses, but DNS can rebind between
 # that check and the connect (TOCTOU) — a filtering proxy closes the residual

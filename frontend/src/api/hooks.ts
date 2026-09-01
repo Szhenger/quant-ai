@@ -29,6 +29,7 @@ import type {
   CursorPage,
   GraphDeployRequest,
   IndicatorCatalog,
+  Limits,
   MarketAnalysis,
   ReplayResult,
   StockHistory,
@@ -47,6 +48,7 @@ export const keys = {
   watchlist: (ws: string) => [ws, "watchlist"] as const,
   strategies: (ws: string) => [ws, "strategies"] as const,
   catalog: ["catalog"] as const,
+  limits: (ws: string) => [ws, "limits"] as const,
   alerts: (ws: string) => [ws, "alerts"] as const,
   unread: (ws: string) => [ws, "unread"] as const,
   replay: (ws: string, id: string, days: number, cooldown: number) =>
@@ -389,7 +391,19 @@ export function useDeleteStrategy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/strategies/${id}/`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
+      void qc.invalidateQueries({ queryKey: keys.limits(ws) });
+    },
+  });
+}
+
+/** The account guards (strategy cap, daily AI budget) and their current usage. */
+export function useLimits() {
+  const ws = useWorkspaceId();
+  return useQuery({
+    queryKey: keys.limits(ws),
+    queryFn: ({ signal }) => api.get<Limits>("/limits/", { signal }).then((r) => r.data),
   });
 }
 
@@ -400,7 +414,12 @@ export function useCreateStrategy() {
   return useMutation({
     mutationFn: (body: Partial<Strategy>) =>
       api.post<Strategy>("/strategies/", body).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+    // Whether it succeeded or hit the cap, the count shown next to the
+    // button must be the server's.
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
+      void qc.invalidateQueries({ queryKey: keys.limits(ws) });
+    },
   });
 }
 
@@ -411,7 +430,10 @@ export function useDeployGraph() {
   return useMutation({
     mutationFn: (body: GraphDeployRequest) =>
       api.post<Strategy>("/strategies/deploy-graph/", body).then((r) => r.data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
+      void qc.invalidateQueries({ queryKey: keys.limits(ws) });
+    },
   });
 }
 

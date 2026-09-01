@@ -3,6 +3,7 @@ import api from "../api/client";
 import { extractError } from "../api/errors";
 import { useRotateWebhookSecret, useUpdateStrategy } from "../api/hooks";
 import type { Strategy } from "../api/types";
+import CostEstimate from "./CostEstimate";
 import {
   DeliveryChecks,
   DeliveryFields,
@@ -181,6 +182,8 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
         &quot;&lt;timestamp&gt;.&lt;body&gt;&quot;)</code> and{" "}
         <code>X-QuantAI-Timestamp</code> — verify both and reject stale timestamps.
       </p>
+
+      <CostEstimate delivery={delivery} aiEnabled={aiEnabled} />
 
       {error && <div className="alert error">{error}</div>}
 

@@ -8,6 +8,10 @@
   "threshold": 0.0,
   "condition": null,
   "condition_summary": "Price greater than 0",
+  "cost_estimate": {
+    "evaluations_per_day": 96,
+    "ai_calls_per_day_max": 0
+  },
   "ai_enabled": false,
   "ai_prompt": "",
   "notify_in_app": true,
