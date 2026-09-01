@@ -771,7 +771,10 @@ textarea {
 .news-list li:last-child { border-bottom: none; }
 .news-title { color: var(--text); }
 .cadence { border-top: 1px solid var(--border); padding-top: 14px; margin-top: 14px; }
-.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
-.field input[type="number"] { width: 76px; }
+/* Scoped to the cadence form: `.field` is the shared label class used by every
+   strategy form, so an unscoped override here would shrink all their number
+   inputs to 76px and mute their labels. */
+.cadence .field { gap: 4px; font-size: 13px; color: var(--muted); }
+.cadence .field input[type="number"] { width: 76px; }
 .row.tight { align-items: center; gap: 6px; }
 details > summary { cursor: pointer; margin: 6px 0; }

@@ -133,6 +133,10 @@ export interface StockPage {
   recomputed_at: string | null;
   refresh_interval_hours: number;
   recompute_interval_hours: number;
+  // True while a recompile of either measure is in flight: the server keeps
+  // serving the last compiled page meanwhile, and the client polls until the
+  // fresh one lands.
+  refreshing: boolean;
 }
 
 export interface QuantSnapshotEntry {
@@ -184,6 +188,21 @@ export interface Strategy {
   last_error: string | null;
   created_at: string;
   updated_at: string;
+}
+
+// The delivery + scheduling knobs every strategy carries, as sent on the wire.
+// Shared by the plain form, the inline editor and the graph builder.
+export type StrategyDelivery = Pick<
+  Strategy,
+  "poll_interval_minutes" | "cooldown_minutes" | "notify_in_app" | "notify_email" | "webhook_url"
+>;
+
+// POST /strategies/deploy-graph/: the React Flow graph plus the same delivery
+// settings the plain form sends; the server compiles the graph into a tree.
+export interface GraphDeployRequest extends StrategyDelivery {
+  name: string;
+  nodes: { id: string; type: string | undefined; data: unknown }[];
+  edges: { source: string; target: string }[];
 }
 
 export interface EvaluateResult {
