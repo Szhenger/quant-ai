@@ -16,6 +16,7 @@ import {
 import api, { API_BASE, fetchAllPages } from "./client";
 import { relativizeCursor } from "./cursor";
 import { useAuthStore } from "../store/auth";
+import { useSocketLive } from "../realtime/store";
 import {
   markAllRead,
   markOneRead,
@@ -50,6 +51,8 @@ export const keys = {
   unread: (ws: string) => [ws, "unread"] as const,
   replay: (ws: string, id: string, days: number, cooldown: number) =>
     [ws, "replay", id, days, cooldown] as const,
+  // Prefix key: invalidating it refetches every open stock page at once.
+  stockPages: (ws: string) => [ws, "stock-page"] as const,
   stockPage: (ws: string, id: string) => [ws, "stock-page", id] as const,
   stockHistory: (ws: string, id: string) => [ws, "stock-history", id] as const,
 };
@@ -131,7 +134,12 @@ export interface StockPageState {
   page: StockPage | null;
 }
 
+// Polling fallbacks. With the workspace socket open, the server pushes
+// `stockpage.updated` / `strategy.evaluated` events and these stand down;
+// they only run while the socket is down, so a broken connection degrades to
+// the old timer behaviour instead of to a frozen screen.
 const STOCK_PAGE_POLL_MS = 2500;
+const STRATEGIES_POLL_MS = 30_000;
 
 /** The compiled stock page for a watchlist entry: both measures, detailed +
  *  summarised. The server never compiles on the request path — while a measure
@@ -139,6 +147,7 @@ const STOCK_PAGE_POLL_MS = 2500;
  *  Returns `{ ready, page }`: `page` is null until `ready` is true. */
 export function useStockPage(watchId: string | null) {
   const ws = useWorkspaceId();
+  const live = useSocketLive();
   return useQuery<StockPageState>({
     queryKey: keys.stockPage(ws, watchId ?? "none"),
     queryFn: ({ signal }) =>
@@ -152,9 +161,11 @@ export function useStockPage(watchId: string | null) {
           page: r.status === 200 ? (r.data as StockPage) : null,
         })),
     enabled: !!watchId,
-    // Poll while the page is still compiling (202) OR while a refresh is in
-    // flight behind a served-but-stale page (`refreshing`); stop otherwise.
+    // Socket down: poll while the page is still compiling (202) or while a
+    // refresh is in flight behind a served-but-stale page (`refreshing`).
+    // Socket open: the compile tasks push `stockpage.updated` instead.
     refetchInterval: (query) => {
+      if (live) return false;
       const d = query.state.data;
       if (!d) return false;
       return !d.ready || d.page?.refreshing ? STOCK_PAGE_POLL_MS : false;
@@ -209,12 +220,13 @@ export function useUpdateWatch() {
 
 export function useStrategies() {
   const ws = useWorkspaceId();
+  const live = useSocketLive();
   return useQuery({
     queryKey: keys.strategies(ws),
     queryFn: () => fetchAllPages<Strategy>("/strategies/"),
-    // Background evaluations mutate status/last_triggered_at server-side;
-    // poll gently (only while the tab is visible — React Query pauses hidden tabs).
-    refetchInterval: 30_000,
+    // Background evaluations mutate status/last_* server-side and push a
+    // `strategy.evaluated` event; the gentle poll is only the socket-down fallback.
+    refetchInterval: live ? false : STRATEGIES_POLL_MS,
   });
 }
 
@@ -365,16 +377,9 @@ export function useEvaluateStrategy() {
   return useMutation({
     mutationFn: (id: string) =>
       api.post<{ status: string }>(`/strategies/${id}/evaluate/`).then((r) => r.data),
-    onSuccess: (data) => {
-      // "queued": the evaluation runs on the worker fleet; refetch again after
-      // it has plausibly finished so the row's status/last_* fields catch up
-      // without waiting for the 30s strategies poll. (Any fired alert also
-      // arrives over the WebSocket regardless.)
-      if (data.status === "queued") {
-        setTimeout(invalidate, 4_000);
-      }
-    },
-    // An evaluation may have fired an alert and moved strategy timestamps.
+    // "queued": the evaluation runs on the worker fleet and its outcome
+    // arrives as a `strategy.evaluated` event (which invalidates again). Any
+    // other status ran eagerly, so the row and alerts may already have moved.
     onSettled: invalidate,
   });
 }

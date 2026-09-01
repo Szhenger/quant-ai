@@ -132,7 +132,14 @@ def test_indicator_catalog_shape(auth_client):
     assert set(resp.data) == {"indicators", "operators"}
     assert set(resp.data["indicators"][0]) == {
         "key", "label", "unit", "defaults", "default_threshold", "help",
+        "summary", "readings",
     }
+    # Reading bands use the strategy operator vocabulary minus the crosses.
+    for entry in resp.data["indicators"]:
+        for band in entry["readings"]:
+            assert "text" in band
+            if "op" in band:
+                assert band["op"] in {"<", ">", "<=", ">="} and "at" in band
     assert set(resp.data["operators"][0]) == {"key", "label"}
 
 

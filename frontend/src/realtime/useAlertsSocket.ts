@@ -4,32 +4,20 @@
  * Incoming alerts land directly in the React Query cache (prepend + unread
  * bump), so whichever panel is mounted re-renders from cache — the socket
  * doesn't care what's on screen, and no panel owns the connection.
+ *
+ * Workspace EVENTS (`stockpage.updated`, `strategy.evaluated`, …) are the
+ * subscription side of every background task: each one invalidates the query
+ * it names, so the panels refetch on change instead of polling on a timer.
  */
 import { useEffect } from "react";
-import { create } from "zustand";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../store/auth";
 import { WS_BASE } from "../api/client";
 import { keys } from "../api/hooks";
-import { ReconnectingAlertSocket, SocketStatus } from "./socket";
+import { ReconnectingAlertSocket } from "./socket";
+import { useRealtimeStore } from "./store";
 import { prependAlert, AlertPages } from "./merge";
-import type { Alert, UnreadCount } from "../api/types";
-
-interface RealtimeState {
-  status: SocketStatus;
-  setStatus: (s: SocketStatus) => void;
-  // Latest strategy lifecycle notice pushed by the server (circuit breaker
-  // tripped, etc.) — rendered as a dismissible banner in the strategies panel.
-  strategyNotice: string | null;
-  setStrategyNotice: (message: string | null) => void;
-}
-
-export const useRealtimeStore = create<RealtimeState>((set) => ({
-  status: "down",
-  setStatus: (status) => set({ status }),
-  strategyNotice: null,
-  setStrategyNotice: (strategyNotice) => set({ strategyNotice }),
-}));
+import type { Alert, EvaluateResult, UnreadCount, WorkspaceEvent } from "../api/types";
 
 export function useAlertsSocket(): void {
   const workspaceId = useAuthStore((s) => s.workspaceId);
@@ -92,14 +80,40 @@ export function useAlertsSocket(): void {
         // The pushed strategy changed server-side (e.g. status -> failed).
         void qc.invalidateQueries({ queryKey: keys.strategies(workspaceId) });
       },
+      onEvent: (raw) => {
+        const ev = raw as WorkspaceEvent;
+        switch (ev.event) {
+          case "stockpage.updated": {
+            const watchId = String(ev.watch_id);
+            void qc.invalidateQueries({ queryKey: keys.stockPage(workspaceId, watchId) });
+            void qc.invalidateQueries({ queryKey: keys.stockHistory(workspaceId, watchId) });
+            void qc.invalidateQueries({ queryKey: keys.watchlist(workspaceId) });
+            return;
+          }
+          case "strategy.evaluated": {
+            useRealtimeStore.getState().recordEvaluation(String(ev.strategy_id), {
+              status: String(ev.status),
+              value: ev.value,
+            } as EvaluateResult);
+            void qc.invalidateQueries({ queryKey: keys.strategies(workspaceId) });
+            return;
+          }
+          default:
+            // Unknown events are ignored — the server may grow new ones.
+            return;
+        }
+      },
       onStatus: (s) => {
-        // Missed-alert catch-up: alerts fired while the socket was down were
+        // Missed-update catch-up: frames sent while the socket was down were
         // group-sent to nobody. On every RE-connect (not the initial open),
-        // refetch the list — the id-dedupe in realtime/merge makes replays of
-        // frames that did arrive harmless.
+        // refetch everything the events would have refreshed — the id-dedupe
+        // in realtime/merge makes replays of alert frames that did arrive
+        // harmless, and the rest are plain refetches.
         if (s === "open" && hadOpened) {
           void qc.invalidateQueries({ queryKey: keys.alerts(workspaceId) });
           void qc.invalidateQueries({ queryKey: keys.unread(workspaceId) });
+          void qc.invalidateQueries({ queryKey: keys.strategies(workspaceId) });
+          void qc.invalidateQueries({ queryKey: keys.stockPages(workspaceId) });
         }
         if (s === "open") hadOpened = true;
         useRealtimeStore.getState().setStatus(s);

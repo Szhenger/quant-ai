@@ -1,4 +1,4 @@
-import { Fragment, Suspense, lazy, useState } from "react";
+import { Fragment, Suspense, lazy, useEffect, useState } from "react";
 import { extractError } from "../api/errors";
 import {
   useDeleteStrategy,
@@ -6,7 +6,7 @@ import {
   useStrategies,
   useUpdateStrategy,
 } from "../api/hooks";
-import { useRealtimeStore } from "../realtime/useAlertsSocket";
+import { useRealtimeStore } from "../realtime/store";
 import StrategyForm from "./StrategyForm";
 import StrategyEditor from "./StrategyEditor";
 import ReplayPanel from "./ReplayPanel";
@@ -29,7 +29,8 @@ interface EvalDisplay {
   title?: string;
 }
 
-const QUEUED_TEXT = "Queued — check Last evaluated shortly";
+const EVALUATING_TEXT = "evaluating…";
+const QUEUED_TEXT = "Queued — result arrives when the worker finishes";
 
 /** Human copy for the raw evaluate statuses the API returns. */
 function describeEvalResult(data: EvaluateResult): EvalDisplay {
@@ -79,6 +80,21 @@ export default function StrategiesPanel({ initialTicker }: { initialTicker?: str
   // Circuit-breaker notices pushed over the WebSocket (strategy_status frames).
   const strategyNotice = useRealtimeStore((s) => s.strategyNotice);
   const setStrategyNotice = useRealtimeStore((s) => s.setStrategyNotice);
+  // Outcomes of worker-side evaluations (`strategy.evaluated` events): a
+  // "Queued" cell resolves into the real result the moment the worker is done.
+  const evaluations = useRealtimeStore((s) => s.evaluations);
+  useEffect(() => {
+    setEvalState((s) => {
+      let next = s;
+      for (const [id, result] of Object.entries(evaluations)) {
+        const cell = s[id];
+        if (cell && (cell.text === QUEUED_TEXT || cell.text === EVALUATING_TEXT)) {
+          next = { ...next, [id]: describeEvalResult(result) };
+        }
+      }
+      return next;
+    });
+  }, [evaluations]);
 
   const clearEval = (id: string) =>
     setEvalState((s) => {
@@ -88,23 +104,11 @@ export default function StrategiesPanel({ initialTicker }: { initialTicker?: str
     });
 
   const runEvaluate = (id: string) => {
-    setEvalState((s) => ({ ...s, [id]: { text: "evaluating…" } }));
+    setEvalState((s) => ({ ...s, [id]: { text: EVALUATING_TEXT } }));
     evaluate.mutate(id, {
-      onSuccess: (data) => {
-        setEvalState((s) => ({ ...s, [id]: describeEvalResult(data) }));
-        // The evaluate hook refetches the row ~4s after a queued dispatch; once
-        // that lands, drop the stale "Queued" cell so the row's own fields
-        // (status, Last triggered) speak for themselves.
-        if (data.status === "queued") {
-          setTimeout(() => {
-            setEvalState((s) => {
-              if (s[id]?.text !== QUEUED_TEXT) return s;
-              const { [id]: _dropped, ...rest } = s;
-              return rest;
-            });
-          }, 4_500);
-        }
-      },
+      // A "Queued" cell is replaced by the worker's outcome when its
+      // `strategy.evaluated` event lands (see the effect above).
+      onSuccess: (data) => setEvalState((s) => ({ ...s, [id]: describeEvalResult(data) })),
       onError: (err) => setEvalState((s) => ({ ...s, [id]: { text: extractError(err) } })),
     });
   };

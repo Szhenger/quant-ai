@@ -336,7 +336,12 @@ class IndicatorCatalogView(APIView):
                 {"key": k, "label": v["label"], "unit": v["unit"],
                  "defaults": v["defaults"],
                  "default_threshold": v.get("default_threshold"),
-                 "help": v["help"]}
+                 "help": v["help"],
+                 # Field-registry metadata: which fields lead a summary, and
+                 # the reading bands, so the console words a value exactly
+                 # as the stock page does (same bands, same text).
+                 "summary": bool(v.get("summary")),
+                 "readings": v.get("readings", [])}
                 for k, v in INDICATOR_SPECS.items()
             ],
             "operators": [{"key": k, "label": v} for k, v in OPERATORS.items()],

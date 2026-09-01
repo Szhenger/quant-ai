@@ -35,6 +35,15 @@ export interface WatchedTicker {
   created_at: string;
 }
 
+// One plain-language band on a field's own scale: `{op, at, text}` is a
+// comparison in the strategy operator vocabulary (crosses excluded); a band
+// with no `op` is the catch-all and comes last.
+export interface IndicatorReading {
+  op?: "<" | ">" | "<=" | ">=";
+  at?: number;
+  text: string;
+}
+
 export interface Indicator {
   key: string;
   label: string;
@@ -44,6 +53,10 @@ export interface Indicator {
   // price-scaled indicators where no universal default exists.
   default_threshold: number | null;
   help: string;
+  // Field-registry metadata (see feeder/indicators.py): whether this field
+  // leads a stock-page summary, and how to word a value.
+  summary: boolean;
+  readings: IndicatorReading[];
 }
 
 export interface Operator {
@@ -263,6 +276,13 @@ export interface Alert {
   is_read: boolean;
   created_at: string;
 }
+
+// Workspace event frames pushed over the socket (see backend/engine/events.py):
+// "something about X changed" — identifiers only, the client refetches.
+export type WorkspaceEvent =
+  | { event: "stockpage.updated"; watch_id: string; ticker: string; measure: string }
+  | { event: "strategy.evaluated"; strategy_id: string; status: string; value?: number | null }
+  | { event: string; [key: string]: unknown };
 
 export interface AuthTokens {
   access: string;

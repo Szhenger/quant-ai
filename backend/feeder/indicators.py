@@ -22,35 +22,85 @@ from .providers import get_provider
 # — "Z-Score < 30" is true on every bar and fires every cooldown window.
 # ``None`` = price-scaled indicators, where no universal default exists and the
 # user must choose.
+# ``summary`` marks the fields a non-expert reads first — they lead the
+# stock-page summary. ``readings`` turns a value into one plain-language
+# phrase: an ordered list of bands on the field's own scale, each a condition
+# in the same operator vocabulary as strategies (``{"op": "<", "at": 30,
+# "text": "oversold"}``); the first band that holds wins, and a band with no
+# ``op`` is the catch-all. Both live HERE, next to the math, so the stock page,
+# the analysis table and the strategy builder all describe a field identically
+# and a new indicator surfaces everywhere with no per-screen edits.
 INDICATOR_SPECS: Dict[str, dict] = {
     "Z_SCORE": {"label": "Z-Score", "unit": "σ", "defaults": {"window": 20},
                 "default_threshold": -2.0,
-                "help": "Standard deviations the latest close sits from its rolling mean."},
+                "help": "Standard deviations the latest close sits from its rolling mean.",
+                "summary": True,
+                "readings": [
+                    {"op": "<=", "at": -2.0, "text": "unusually cheap vs. its recent average"},
+                    {"op": ">=", "at": 2.0, "text": "unusually expensive vs. its recent average"},
+                    {"text": "near its recent average"},
+                ]},
     "RSI": {"label": "RSI", "unit": "", "defaults": {"period": 14},
             "default_threshold": 30.0,
-            "help": "Relative Strength Index (0-100). <30 oversold, >70 overbought."},
+            "help": "Relative Strength Index (0-100). <30 oversold, >70 overbought.",
+            "summary": True,
+            "readings": [
+                {"op": "<", "at": 30.0, "text": "oversold"},
+                {"op": ">", "at": 70.0, "text": "overbought"},
+                {"text": "neutral"},
+            ]},
     "SMA_CROSS": {"label": "SMA Spread (fast-slow)", "unit": "$", "defaults": {"fast": 20, "slow": 50},
                   "default_threshold": 0.0,
-                  "help": "Fast SMA minus slow SMA. Cross above 0 = golden cross."},
+                  "help": "Fast SMA minus slow SMA. Cross above 0 = golden cross.",
+                  "summary": False,
+                  "readings": [
+                      {"op": ">", "at": 0.0, "text": "fast average above slow (uptrend)"},
+                      {"op": "<", "at": 0.0, "text": "fast average below slow (downtrend)"},
+                      {"text": "averages level"},
+                  ]},
     "MACD_HIST": {"label": "MACD Histogram", "unit": "", "defaults": {"fast": 12, "slow": 26, "signal": 9},
                   "default_threshold": 0.0,
-                  "help": "MACD line minus signal line."},
+                  "help": "MACD line minus signal line.",
+                  "summary": False,
+                  "readings": [
+                      {"op": ">", "at": 0.0, "text": "momentum building"},
+                      {"op": "<", "at": 0.0, "text": "momentum fading"},
+                      {"text": "momentum flat"},
+                  ]},
     "PCT_CHANGE": {"label": "% Change", "unit": "%", "defaults": {"window": 1},
                    "default_threshold": -5.0,
-                   "help": "Percent change of the close over N bars."},
+                   "help": "Percent change of the close over N bars.",
+                   "summary": True,
+                   "readings": [
+                       {"op": ">", "at": 0.0, "text": "up over the window"},
+                       {"op": "<", "at": 0.0, "text": "down over the window"},
+                       {"text": "flat"},
+                   ]},
     "VOLATILITY": {"label": "Volatility (annualized)", "unit": "%", "defaults": {"window": 20},
                    "default_threshold": 40.0,
-                   "help": "Annualized standard deviation of daily returns."},
+                   "help": "Annualized standard deviation of daily returns.",
+                   "summary": True,
+                   "readings": [
+                       {"op": ">=", "at": 40.0, "text": "highly volatile"},
+                       {"op": "<=", "at": 15.0, "text": "calm"},
+                       {"text": "moderate volatility"},
+                   ]},
     "SMA": {"label": "SMA", "unit": "$", "defaults": {"window": 20},
             "default_threshold": None,
-            "help": "Simple moving average of the close over N bars."},
+            "help": "Simple moving average of the close over N bars.",
+            "summary": False, "readings": []},
     "EMA": {"label": "EMA", "unit": "$", "defaults": {"window": 20},
             "default_threshold": None,
-            "help": "Exponential moving average of the close over N bars."},
+            "help": "Exponential moving average of the close over N bars.",
+            "summary": False, "readings": []},
     "PRICE": {"label": "Price", "unit": "$", "defaults": {},
               "default_threshold": None,
-              "help": "The latest closing price."},
+              "help": "The latest closing price.",
+              "summary": False, "readings": []},
 }
+
+# What a reading says when the field has no value yet (warm-up window).
+NO_HISTORY_READING = "not enough history yet"
 
 # Operators available for conditions. Cross operators use the previous value.
 # NOTE: exact float equality ("==") is intentionally NOT offered — a computed
@@ -64,6 +114,45 @@ OPERATORS = {
     "cross_above": "crosses above",
     "cross_below": "crosses below",
 }
+
+# Readings are plain comparisons on a single value; the cross operators need a
+# previous value and make no sense as a band.
+_READING_OPERATORS = {"<", ">", "<=", ">="}
+
+
+def summary_indicators() -> List[str]:
+    """Catalog order of the fields flagged ``summary`` — the stock-page headline set."""
+    return [key for key, spec in INDICATOR_SPECS.items() if spec.get("summary")]
+
+
+def read_indicator(indicator: str, value: Optional[float]) -> str:
+    """One plain-language phrase for ``value`` on this field's scale, from the
+    field's own ``readings`` bands. Empty string when the field defines none."""
+    if value is None:
+        return NO_HISTORY_READING
+    for band in INDICATOR_SPECS[indicator].get("readings", []):
+        op = band.get("op")
+        if op is None or evaluate_condition(op, value, None, float(band["at"])):
+            return band["text"]
+    return ""
+
+
+def _check_specs() -> None:
+    """Fail at import, not at 3am, if a spec entry is malformed."""
+    for key, spec in INDICATOR_SPECS.items():
+        for field in ("label", "unit", "defaults", "default_threshold", "help", "summary", "readings"):
+            if field not in spec:
+                raise ValueError(f"INDICATOR_SPECS[{key!r}] is missing {field!r}")
+        bands = spec["readings"]
+        for i, band in enumerate(bands):
+            if "text" not in band:
+                raise ValueError(f"INDICATOR_SPECS[{key!r}].readings[{i}] has no text")
+            if "op" in band:
+                if band["op"] not in _READING_OPERATORS or "at" not in band:
+                    raise ValueError(f"INDICATOR_SPECS[{key!r}].readings[{i}] is not a comparison")
+            elif i != len(bands) - 1:
+                raise ValueError(f"INDICATOR_SPECS[{key!r}]: the catch-all reading must be last")
+
 
 # Upper bound for every window/period parameter. Without a ceiling, a strategy
 # with e.g. {"window": 10**9} passes validation, the lookback sizing asks for
@@ -347,3 +436,6 @@ def analyze_market(ticker: str, days: int = 180) -> dict:
         "latest_price": series.latest,
         "indicators": indicators,
     }
+
+
+_check_specs()
