@@ -66,6 +66,9 @@ export default function StockDetail({
 
   const d = pageQ.data?.page ?? null;
   const computing = !!pageQ.data && !pageQ.data.ready;
+  // A refresh in flight: the page on screen is the last compiled one and the
+  // hook is polling for its replacement.
+  const refreshing = refresh.isPending || !!d?.refreshing;
 
   return (
     <section className="card stock-detail">
@@ -95,9 +98,9 @@ export default function StockDetail({
           <button
             className="btn primary"
             onClick={() => refresh.mutate(watch.id)}
-            disabled={refresh.isPending}
+            disabled={refreshing}
           >
-            {refresh.isPending ? "Refreshing…" : "Refresh now"}
+            {refreshing ? "Refreshing…" : "Refresh now"}
           </button>
         </div>
       </div>
@@ -105,7 +108,14 @@ export default function StockDetail({
       {(pageQ.isLoading || computing) && (
         <p className="muted">Compiling this week's financial data…</p>
       )}
+      {d && refreshing && (
+        <p className="muted small" role="status">
+          Recompiling in the background — the numbers below update automatically when
+          it finishes.
+        </p>
+      )}
       {pageQ.isError && <div className="alert error">{extractError(pageQ.error)}</div>}
+      {refresh.isError && <div className="alert error">{extractError(refresh.error)}</div>}
 
       {d && (
         <>

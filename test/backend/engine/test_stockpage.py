@@ -111,6 +111,28 @@ def test_refresh_is_async_and_returns_202(auth_client, workspace):
         assert q.called and ql.called
 
 
+def test_page_reports_refreshing_until_the_recompile_lands(auth_client, workspace):
+    wid = auth_client.post("/api/v1/watchlist/", {"ticker": "AAPL"}, format="json").data["id"]
+    # The eager compile at POST time cleared both warm markers: nothing in flight.
+    assert auth_client.get(f"/api/v1/watchlist/{wid}/page/").data["refreshing"] is False
+
+    with patch("engine.tasks.compile_stock_quantitative.delay"), \
+         patch("engine.tasks.compile_stock_qualitative.delay"):
+        auth_client.post(f"/api/v1/watchlist/{wid}/refresh/")
+        # The last compiled page is still served (200, timestamps intact) but
+        # flagged, so the client keeps polling instead of silently showing
+        # stale numbers until its next focus refetch.
+        r = auth_client.get(f"/api/v1/watchlist/{wid}/page/")
+        assert r.status_code == 200
+        assert r.data["refreshing"] is True
+
+    # Each compile clears only its own marker: the flag holds until BOTH land.
+    compile_stock_quantitative(wid)
+    assert auth_client.get(f"/api/v1/watchlist/{wid}/page/").data["refreshing"] is True
+    compile_stock_qualitative(wid)
+    assert auth_client.get(f"/api/v1/watchlist/{wid}/page/").data["refreshing"] is False
+
+
 def test_client_sets_refresh_and_recompute_intervals(auth_client, workspace):
     wid = auth_client.post("/api/v1/watchlist/", {"ticker": "TSLA"}, format="json").data["id"]
     resp = auth_client.patch(f"/api/v1/watchlist/{wid}/",

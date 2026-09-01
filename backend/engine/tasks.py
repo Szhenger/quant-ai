@@ -30,6 +30,7 @@ from django.db.models.functions import Cast
 from django.utils import timezone
 
 from advisor import ClaudeClient, AlertVerdict
+from identity.caching import stockpage_warm_key
 from feeder import (
     get_provider,
     evaluate_condition_tree,
@@ -353,8 +354,11 @@ def prune_expired_records():
 #   * quantitative (macroscale indicators) every m hours, retaining a compressed
 #     snapshot of the previous measure for continuity.
 # ``refresh_stock_pages`` (Beat) fans out the due work; the two compile tasks do
-# the compute and persist. Calling a compile task directly (not ``.delay``) runs
-# it synchronously — the API uses that to warm a brand-new page on first view.
+# the compute and persist. The API never runs a compile in-request: a page that
+# isn't ready is warmed with ``.delay`` and the client polls (see
+# ``identity.views.WatchedTickerViewSet``). Each compile task clears its
+# per-measure warm marker on completion, which is how the page endpoint knows
+# whether a refresh is still in flight.
 # --------------------------------------------------------------------------- #
 def _compress_measure(payload: dict) -> bytes:
     return gzip.compress(json.dumps(payload, separators=(",", ":")).encode())
@@ -412,6 +416,9 @@ def compile_stock_quantitative(watched_ticker_id: str, snapshot_previous: bool =
             "quantitative", "quantitative_summary", "data_synthetic",
             "recomputed_at", "updated_at",
         ])
+    # After the commit: the page endpoint stops reporting ``refreshing`` for
+    # this measure only once the fresh numbers are actually readable.
+    cache.delete(stockpage_warm_key(wt.id, "quantitative"))
     return {"status": "recomputed", "ticker": wt.ticker}
 
 
@@ -438,6 +445,7 @@ def compile_stock_qualitative(watched_ticker_id: str):
             "qualitative", "qualitative_summary", "data_synthetic",
             "refreshed_at", "updated_at",
         ])
+    cache.delete(stockpage_warm_key(wt.id, "qualitative"))
     return {"status": "refreshed", "ticker": wt.ticker}
 
 

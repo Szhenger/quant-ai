@@ -1,20 +1,25 @@
 import { FormEvent, useEffect, useState } from "react";
-import api from "../api/client";
 import { extractError } from "../api/errors";
-import { useIndicatorCatalog } from "../api/hooks";
+import { useCreateStrategy, useIndicatorCatalog } from "../api/hooks";
 import type { Indicator } from "../api/types";
+import {
+  DEFAULT_DELIVERY,
+  DeliveryChecks,
+  DeliveryFields,
+  toDeliveryPayload,
+} from "./DeliverySettings";
 
 interface StrategyFormProps {
-  onCreated: () => void;
   initialTicker?: string;
 }
 
-export default function StrategyForm({ onCreated, initialTicker }: StrategyFormProps) {
+export default function StrategyForm({ initialTicker }: StrategyFormProps) {
   // Shared React Query catalog (staleTime: Infinity): one fetch per session,
   // deduped with any other mounted consumer (e.g. the graph builder), and
   // properly aborted if this form unmounts mid-flight.
   const catalogQuery = useIndicatorCatalog();
   const catalog = catalogQuery.data ?? null;
+  const create = useCreateStrategy();
 
   const [name, setName] = useState("");
   const [ticker, setTicker] = useState(initialTicker?.toUpperCase() || "AAPL");
@@ -30,14 +35,8 @@ export default function StrategyForm({ onCreated, initialTicker }: StrategyFormP
   const [thresholdTouched, setThresholdTouched] = useState(false);
   const [aiEnabled, setAiEnabled] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
-  const [notifyInApp, setNotifyInApp] = useState(true);
-  const [notifyEmail, setNotifyEmail] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [pollInterval, setPollInterval] = useState("15");
-  // Bars are daily, so a shorter cooldown can re-alert on the same bar.
-  const [cooldown, setCooldown] = useState("1440");
+  const [delivery, setDelivery] = useState(DEFAULT_DELIVERY);
 
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Seed the initial indicator/operator once the catalog arrives.
@@ -66,6 +65,8 @@ export default function StrategyForm({ onCreated, initialTicker }: StrategyFormP
   };
 
   // Seed params and threshold once the catalog (and the initial indicator) arrive.
+  // Runs on indicator identity only: `thresholdTouched` is read, not reacted
+  // to — a user typing a threshold must not re-run the seeding.
   useEffect(() => {
     if (!selectedIndicator) return;
     setParams((prev) =>
@@ -87,20 +88,16 @@ export default function StrategyForm({ onCreated, initialTicker }: StrategyFormP
         .map(([k, v]) => [k, Number(v)]),
     );
 
-  const onSubmit = async (e: FormEvent) => {
+  const onSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    // Number("") is 0 — an emptied input must not submit a hot-poll/zero-
-    // cooldown strategy (the server rejects it; fail here with a clear message).
-    const poll = Number(pollInterval);
-    const cool = Number(cooldown);
-    if (!Number.isInteger(poll) || poll < 1 || !Number.isInteger(cool) || cool < 1) {
-      setError("Poll interval and cooldown must be whole minutes, at least 1.");
+    const wire = toDeliveryPayload(delivery);
+    if (!wire.ok) {
+      setError(wire.error);
       return;
     }
-    setSubmitting(true);
-    try {
-      await api.post("/strategies/", {
+    create.mutate(
+      {
         name: name.trim() || `${ticker} ${indicator}`,
         ticker: ticker.trim().toUpperCase(),
         indicator,
@@ -109,21 +106,17 @@ export default function StrategyForm({ onCreated, initialTicker }: StrategyFormP
         threshold: Number(threshold),
         ai_enabled: aiEnabled,
         ai_prompt: aiPrompt,
-        notify_in_app: notifyInApp,
-        notify_email: notifyEmail,
-        webhook_url: webhookUrl.trim(),
-        poll_interval_minutes: Number(pollInterval),
-        cooldown_minutes: Number(cooldown),
-      });
-      // Reset the volatile fields; keep sensible defaults.
-      setName("");
-      setAiPrompt("");
-      onCreated();
-    } catch (err) {
-      setError(extractError(err));
-    } finally {
-      setSubmitting(false);
-    }
+        ...wire.payload,
+      },
+      {
+        // Reset the volatile fields; keep sensible defaults.
+        onSuccess: () => {
+          setName("");
+          setAiPrompt("");
+        },
+        onError: (err) => setError(extractError(err)),
+      },
+    );
   };
 
   if (catalogQuery.isError) {
@@ -208,59 +201,12 @@ export default function StrategyForm({ onCreated, initialTicker }: StrategyFormP
           />
         </label>
 
-        <label className="field">
-          <span>Poll interval (min)</span>
-          <input
-            type="number"
-            min={1}
-            value={pollInterval}
-            onChange={(e) => setPollInterval(e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span>Cooldown (min)</span>
-          <input
-            type="number"
-            min={1}
-            value={cooldown}
-            onChange={(e) => setCooldown(e.target.value)}
-          />
-          <span className="muted small">
-            Bars are daily — a cooldown shorter than 1440 min can re-alert on the same
-            bar.
-          </span>
-        </label>
-
-        <label className="field">
-          <span>Webhook URL</span>
-          <input
-            value={webhookUrl}
-            onChange={(e) => setWebhookUrl(e.target.value)}
-            placeholder="https://…"
-          />
-        </label>
+        <DeliveryFields value={delivery} onChange={setDelivery} />
       </div>
 
       {selectedIndicator?.help && <p className="muted small">{selectedIndicator.help}</p>}
 
-      <div className="checks">
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={notifyInApp}
-            onChange={(e) => setNotifyInApp(e.target.checked)}
-          />
-          <span>Notify in-app</span>
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={notifyEmail}
-            onChange={(e) => setNotifyEmail(e.target.checked)}
-          />
-          <span>Notify email</span>
-        </label>
+      <DeliveryChecks value={delivery} onChange={setDelivery}>
         <label className="check">
           <input
             type="checkbox"
@@ -269,7 +215,7 @@ export default function StrategyForm({ onCreated, initialTicker }: StrategyFormP
           />
           <span>Enable AI confirmation</span>
         </label>
-      </div>
+      </DeliveryChecks>
 
       {aiEnabled && (
         <label className="field">
@@ -285,8 +231,8 @@ export default function StrategyForm({ onCreated, initialTicker }: StrategyFormP
 
       {error && <div className="alert error">{error}</div>}
 
-      <button className="btn primary" type="submit" disabled={submitting}>
-        {submitting ? "Creating…" : "Create strategy"}
+      <button className="btn primary" type="submit" disabled={create.isPending}>
+        {create.isPending ? "Creating…" : "Create strategy"}
       </button>
     </form>
   );

@@ -1,13 +1,10 @@
 import { Fragment, Suspense, lazy, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
 import { extractError } from "../api/errors";
 import {
-  keys,
   useDeleteStrategy,
   useEvaluateStrategy,
   useStrategies,
   useUpdateStrategy,
-  useWorkspaceId,
 } from "../api/hooks";
 import { useRealtimeStore } from "../realtime/useAlertsSocket";
 import StrategyForm from "./StrategyForm";
@@ -65,8 +62,6 @@ function describeEvalResult(data: EvaluateResult): EvalDisplay {
 }
 
 export default function StrategiesPanel({ initialTicker }: { initialTicker?: string } = {}) {
-  const ws = useWorkspaceId();
-  const qc = useQueryClient();
   const strategies = useStrategies();
   const evaluate = useEvaluateStrategy();
   const remove = useDeleteStrategy();
@@ -84,8 +79,6 @@ export default function StrategiesPanel({ initialTicker }: { initialTicker?: str
   // Circuit-breaker notices pushed over the WebSocket (strategy_status frames).
   const strategyNotice = useRealtimeStore((s) => s.strategyNotice);
   const setStrategyNotice = useRealtimeStore((s) => s.setStrategyNotice);
-
-  const onCreated = () => void qc.invalidateQueries({ queryKey: keys.strategies(ws) });
 
   const clearEval = (id: string) =>
     setEvalState((s) => {
@@ -323,11 +316,13 @@ export default function StrategiesPanel({ initialTicker }: { initialTicker?: str
           </div>
         </div>
 
+        {/* Both builders invalidate the strategies list themselves via their
+            mutation hooks, so a new row appears above without a callback. */}
         {builder === "form" ? (
-          <StrategyForm onCreated={onCreated} initialTicker={initialTicker} />
+          <StrategyForm initialTicker={initialTicker} />
         ) : (
           <Suspense fallback={<p className="muted">Loading graph builder…</p>}>
-            <StrategyGraphBuilder onCreated={onCreated} />
+            <StrategyGraphBuilder />
           </Suspense>
         )}
       </section>

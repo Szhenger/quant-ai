@@ -26,6 +26,7 @@ import {
 import type {
   Alert,
   CursorPage,
+  GraphDeployRequest,
   IndicatorCatalog,
   MarketAnalysis,
   ReplayResult,
@@ -125,13 +126,20 @@ export function useRemoveWatch() {
 
 // --- Stock page (the compiled per-ticker view) -------------------------------
 
+export interface StockPageState {
+  ready: boolean;
+  page: StockPage | null;
+}
+
+const STOCK_PAGE_POLL_MS = 2500;
+
 /** The compiled stock page for a watchlist entry: both measures, detailed +
  *  summarised. The server never compiles on the request path — while a measure
  *  is still being built it answers 202, and this hook polls until it's ready.
  *  Returns `{ ready, page }`: `page` is null until `ready` is true. */
 export function useStockPage(watchId: string | null) {
   const ws = useWorkspaceId();
-  return useQuery({
+  return useQuery<StockPageState>({
     queryKey: keys.stockPage(ws, watchId ?? "none"),
     queryFn: ({ signal }) =>
       api
@@ -144,9 +152,13 @@ export function useStockPage(watchId: string | null) {
           page: r.status === 200 ? (r.data as StockPage) : null,
         })),
     enabled: !!watchId,
-    // Poll only while the page is still compiling; stop once it's ready.
-    refetchInterval: (query) =>
-      query.state.data && !query.state.data.ready ? 2500 : false,
+    // Poll while the page is still compiling (202) OR while a refresh is in
+    // flight behind a served-but-stale page (`refreshing`); stop otherwise.
+    refetchInterval: (query) => {
+      const d = query.state.data;
+      if (!d) return false;
+      return !d.ready || d.page?.refreshing ? STOCK_PAGE_POLL_MS : false;
+    },
   });
 }
 
@@ -155,10 +167,15 @@ export function useRefreshStockPage() {
   const qc = useQueryClient();
   return useMutation({
     // Fire-and-forget: the server recomputes on the worker fleet and returns 202.
-    // Invalidate so the page query refetches (and then polls) for the fresh data.
     mutationFn: (watchId: string) =>
       api.post(`/watchlist/${watchId}/refresh/`).then((r) => r.data),
     onSuccess: (_data, watchId) => {
+      // Flip the cached page to `refreshing` immediately so the poll starts on
+      // this render, not after the invalidation round-trip; the server reports
+      // the same flag until the recompile lands, then the poll stops itself.
+      qc.setQueryData<StockPageState>(keys.stockPage(ws, watchId), (d) =>
+        d?.page ? { ...d, page: { ...d.page, refreshing: true } } : d,
+      );
       void qc.invalidateQueries({ queryKey: keys.stockPage(ws, watchId) });
       void qc.invalidateQueries({ queryKey: keys.stockHistory(ws, watchId) });
       void qc.invalidateQueries({ queryKey: keys.watchlist(ws) });
@@ -367,6 +384,28 @@ export function useDeleteStrategy() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => api.delete(`/strategies/${id}/`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+  });
+}
+
+/** POST a strategy authored in the plain form (simple mode: flat fields). */
+export function useCreateStrategy() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Partial<Strategy>) =>
+      api.post<Strategy>("/strategies/", body).then((r) => r.data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
+  });
+}
+
+/** POST a React Flow graph; the server compiles it into a composite strategy. */
+export function useDeployGraph() {
+  const ws = useWorkspaceId();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: GraphDeployRequest) =>
+      api.post<Strategy>("/strategies/deploy-graph/", body).then((r) => r.data),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.strategies(ws) }),
   });
 }

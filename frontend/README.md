@@ -78,9 +78,11 @@ That interceptor is the client half of the two-checkpoint story in Chapter 9: id
 
 One socket per session, owned by the app shell (`realtime/useAlertsSocket.ts`), not by any
 panel — so alerts arrive and the sidebar's unread badge ticks up whichever tab you're on.
-The access token rides in the **query string** (a browser can't set headers on a WebSocket),
-exactly as [Chapter 9](../documentation/09-the-api-contract.md) describes, and the URL is rebuilt at
-every (re)connect so a refreshed token is picked up without tearing the socket down.
+The access token rides in the **subprotocol list** (`Sec-WebSocket-Protocol` is the one header
+a browser lets a WebSocket set, and unlike a `?token=` query string it never lands in proxy
+access logs or browser history), exactly as [Chapter 9](../documentation/09-the-api-contract.md)
+describes. The URL and the offered subprotocols are rebuilt at every (re)connect, so a
+refreshed token is picked up without tearing the socket down.
 
 The raw browser WebSocket reports clean closes but not *half-open* connections — a dead
 proxy or a slept laptop leaves a socket that looks open and delivers nothing. Alerts are the

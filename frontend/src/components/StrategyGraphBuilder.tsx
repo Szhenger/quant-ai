@@ -20,14 +20,15 @@ import type {
   NodeTypes,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import api from "../api/client";
 import { extractError } from "../api/errors";
-import { useIndicatorCatalog } from "../api/hooks";
+import { useDeployGraph, useIndicatorCatalog } from "../api/hooks";
 import type { IndicatorCatalog } from "../api/types";
-
-interface StrategyGraphBuilderProps {
-  onCreated: () => void;
-}
+import {
+  DEFAULT_DELIVERY,
+  DeliveryChecks,
+  DeliveryFields,
+  toDeliveryPayload,
+} from "./DeliverySettings";
 
 type RightMode = "value" | "indicator";
 
@@ -228,24 +229,19 @@ function AiNode({ id, data }: NodeProps<AiData>) {
 
 const nodeTypes: NodeTypes = { asset: AssetNode, quant: QuantNode, logic: LogicNode, ai: AiNode };
 
-function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
+function BuilderCanvas() {
   const [nodes, setNodes] = useState<Node[]>(INITIAL_NODES);
   const [edges, setEdges] = useState<Edge[]>(INITIAL_EDGES);
   const [name, setName] = useState("Graph strategy");
   // Shared session-cached catalog — deduped with StrategyForm's consumer.
   const catalogQuery = useIndicatorCatalog();
   const catalog = catalogQuery.data ?? null;
-  const [deploying, setDeploying] = useState(false);
+  const deploy = useDeployGraph();
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const counter = useRef(2);
 
-  // Delivery/scheduling settings — same knobs as the plain form builder.
-  const [pollInterval, setPollInterval] = useState("15");
-  const [cooldown, setCooldown] = useState("60");
-  const [notifyInApp, setNotifyInApp] = useState(true);
-  const [notifyEmail, setNotifyEmail] = useState(false);
-  const [webhookUrl, setWebhookUrl] = useState("");
+  // Delivery/scheduling settings — the same knobs (and defaults) as the plain form.
+  const [delivery, setDelivery] = useState(DEFAULT_DELIVERY);
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
@@ -286,20 +282,15 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
     ]);
   };
 
-  const onDeploy = async () => {
+  const onDeploy = () => {
     setError(null);
-    setSuccess(null);
-    // Number("") is 0 — an emptied input must not deploy a hot-poll/zero-
-    // cooldown strategy (the server rejects it; fail here with a clear message).
-    const poll = Number(pollInterval);
-    const cool = Number(cooldown);
-    if (!Number.isInteger(poll) || poll < 1 || !Number.isInteger(cool) || cool < 1) {
-      setError("Poll interval and cooldown must be whole minutes, at least 1.");
+    const wire = toDeliveryPayload(delivery);
+    if (!wire.ok) {
+      setError(wire.error);
       return;
     }
-    setDeploying(true);
-    try {
-      const payload = {
+    deploy.mutate(
+      {
         name: name.trim() || "Graph strategy",
         nodes: nodes.map((n) => {
           if (n.type === "quant") {
@@ -317,23 +308,13 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
           if (n.type === "logic") {
             return { id: n.id, type: n.type, data: { op: (n.data as LogicData).op } };
           }
-          return { id: n.id, type: n.type, data: n.data };
+          return { id: n.id, type: n.type, data: n.data as unknown };
         }),
         edges: edges.map((e) => ({ source: e.source, target: e.target })),
-        notify_in_app: notifyInApp,
-        notify_email: notifyEmail,
-        webhook_url: webhookUrl.trim(),
-        poll_interval_minutes: Number(pollInterval),
-        cooldown_minutes: Number(cooldown),
-      };
-      const res = await api.post("/strategies/deploy-graph/", payload);
-      setSuccess(`Deployed strategy: ${res.data?.name ?? "created"}.`);
-      onCreated();
-    } catch (err) {
-      setError(extractError(err));
-    } finally {
-      setDeploying(false);
-    }
+        ...wire.payload,
+      },
+      { onError: (err) => setError(extractError(err)) },
+    );
   };
 
   return (
@@ -348,57 +329,16 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
         />
         <button className="btn ghost" onClick={addQuant} type="button">+ Condition</button>
         <button className="btn ghost" onClick={addLogic} type="button">+ AND/OR</button>
-        <button className="btn primary" onClick={() => void onDeploy()} disabled={deploying}>
-          {deploying ? "Deploying…" : "Deploy graph"}
+        <button className="btn primary" onClick={onDeploy} disabled={deploy.isPending}>
+          {deploy.isPending ? "Deploying…" : "Deploy graph"}
         </button>
       </div>
 
-      <div className="row gap wrap builder-toolbar">
-        <label className="field">
-          <span>Poll (min)</span>
-          <input
-            className="nodrag"
-            type="number"
-            min={1}
-            value={pollInterval}
-            onChange={(e) => setPollInterval(e.target.value)}
-            aria-label="Poll interval minutes"
-          />
-        </label>
-        <label className="field">
-          <span>Cooldown (min)</span>
-          <input
-            className="nodrag"
-            type="number"
-            min={1}
-            value={cooldown}
-            onChange={(e) => setCooldown(e.target.value)}
-            aria-label="Cooldown minutes"
-          />
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={notifyInApp}
-            onChange={(e) => setNotifyInApp(e.target.checked)}
-          />
-          <span>Notify in-app</span>
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={notifyEmail}
-            onChange={(e) => setNotifyEmail(e.target.checked)}
-          />
-          <span>Notify email</span>
-        </label>
-        <input
-          className="grow"
-          value={webhookUrl}
-          onChange={(e) => setWebhookUrl(e.target.value)}
-          placeholder="Webhook URL (optional)"
-          aria-label="Webhook URL"
-        />
+      <div className="form-grid builder-toolbar">
+        <DeliveryFields value={delivery} onChange={setDelivery} />
+      </div>
+      <div className="builder-toolbar">
+        <DeliveryChecks value={delivery} onChange={setDelivery} />
       </div>
 
       {catalogQuery.isError && (
@@ -407,7 +347,9 @@ function BuilderCanvas({ onCreated }: StrategyGraphBuilderProps) {
         </div>
       )}
       {error && <div className="alert error">{error}</div>}
-      {success && <div className="alert success">{success}</div>}
+      {deploy.isSuccess && (
+        <div className="alert success">Deployed strategy: {deploy.data.name}.</div>
+      )}
 
       <p className="muted small">
         Connect Asset → Condition(s) → AI. To combine conditions, drop an AND/OR node and wire
@@ -440,10 +382,10 @@ function rightParams(catalog: IndicatorCatalog | null, d: QuantData): Record<str
   return { [key]: Number(d.rightParam) };
 }
 
-export default function StrategyGraphBuilder({ onCreated }: StrategyGraphBuilderProps) {
+export default function StrategyGraphBuilder() {
   return (
     <ReactFlowProvider>
-      <BuilderCanvas onCreated={onCreated} />
+      <BuilderCanvas />
     </ReactFlowProvider>
   );
 }

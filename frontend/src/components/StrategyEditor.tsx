@@ -3,6 +3,12 @@ import api from "../api/client";
 import { extractError } from "../api/errors";
 import { useRotateWebhookSecret, useUpdateStrategy } from "../api/hooks";
 import type { Strategy } from "../api/types";
+import {
+  DeliveryChecks,
+  DeliveryFields,
+  deliveryFromStrategy,
+  toDeliveryPayload,
+} from "./DeliverySettings";
 
 interface StrategyEditorProps {
   strategy: Strategy;
@@ -23,11 +29,7 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
 
   const [name, setName] = useState(strategy.name);
   const [threshold, setThreshold] = useState(String(strategy.threshold));
-  const [pollInterval, setPollInterval] = useState(String(strategy.poll_interval_minutes));
-  const [cooldown, setCooldown] = useState(String(strategy.cooldown_minutes));
-  const [webhookUrl, setWebhookUrl] = useState(strategy.webhook_url);
-  const [notifyInApp, setNotifyInApp] = useState(strategy.notify_in_app);
-  const [notifyEmail, setNotifyEmail] = useState(strategy.notify_email);
+  const [delivery, setDelivery] = useState(() => deliveryFromStrategy(strategy));
   const [aiEnabled, setAiEnabled] = useState(strategy.ai_enabled);
   const [aiPrompt, setAiPrompt] = useState(strategy.ai_prompt);
 
@@ -50,23 +52,16 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
   const onSave = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    const poll = Number(pollInterval);
-    const cool = Number(cooldown);
-    // Number("") is 0 — an emptied input must not submit a hot-poll/zero-
-    // cooldown strategy (the server rejects it, but fail with a clear message).
-    if (!Number.isInteger(poll) || poll < 1 || !Number.isInteger(cool) || cool < 1) {
-      setError("Poll interval and cooldown must be whole minutes, at least 1.");
+    const wire = toDeliveryPayload(delivery);
+    if (!wire.ok) {
+      setError(wire.error);
       return;
     }
     const patch: Partial<Strategy> = {
       name: name.trim() || strategy.name,
-      poll_interval_minutes: poll,
-      cooldown_minutes: cool,
-      webhook_url: webhookUrl.trim(),
-      notify_in_app: notifyInApp,
-      notify_email: notifyEmail,
       ai_enabled: aiEnabled,
       ai_prompt: aiPrompt,
+      ...wire.payload,
     };
     if (!isComposite) {
       patch.threshold = Number(threshold);
@@ -139,53 +134,10 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
           </label>
         )}
 
-        <label className="field">
-          <span>Poll interval (min)</span>
-          <input
-            type="number"
-            min={1}
-            value={pollInterval}
-            onChange={(e) => setPollInterval(e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span>Cooldown (min)</span>
-          <input
-            type="number"
-            min={1}
-            value={cooldown}
-            onChange={(e) => setCooldown(e.target.value)}
-          />
-        </label>
-
-        <label className="field">
-          <span>Webhook URL</span>
-          <input
-            value={webhookUrl}
-            onChange={(e) => setWebhookUrl(e.target.value)}
-            placeholder="https://…"
-          />
-        </label>
+        <DeliveryFields value={delivery} onChange={setDelivery} />
       </div>
 
-      <div className="checks">
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={notifyInApp}
-            onChange={(e) => setNotifyInApp(e.target.checked)}
-          />
-          <span>Notify in-app</span>
-        </label>
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={notifyEmail}
-            onChange={(e) => setNotifyEmail(e.target.checked)}
-          />
-          <span>Notify email</span>
-        </label>
+      <DeliveryChecks value={delivery} onChange={setDelivery}>
         <label className="check">
           <input
             type="checkbox"
@@ -194,7 +146,7 @@ export default function StrategyEditor({ strategy, onClose }: StrategyEditorProp
           />
           <span>AI confirmation</span>
         </label>
-      </div>
+      </DeliveryChecks>
 
       {aiEnabled && (
         <label className="field">

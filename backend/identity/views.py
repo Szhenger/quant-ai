@@ -17,6 +17,7 @@ from .serializers import (
     WatchedTickerSerializer,
     StockPageSerializer,
 )
+from .caching import STOCKPAGE_WARM_TTL, stockpage_refreshing, stockpage_warm_key
 from .workspaces import resolve_active_workspace
 
 
@@ -134,27 +135,34 @@ class WatchedTickerViewSet(viewsets.ModelViewSet):
         self._warm_stock_page(watched, page=None)
 
     @staticmethod
-    def _warm_key(watched_id) -> str:
-        return f"quantai:stockpage-warm:{watched_id}"
-
-    def _warm_stock_page(self, watched, *, page, force: bool = False) -> None:
+    def _warm_stock_page(watched, *, page, force: bool = False) -> None:
         """Enqueue the compile tasks for whichever measures are missing — always
         via ``.delay`` (never inline), so no request thread ever blocks on a
         provider fetch or a paid Claude call.
 
-        Debounced with an atomic cache marker so repeated polls / focus-refetches
-        while a compile is in flight can't fan out duplicate compiles and re-spend
-        Claude tokens. ``force`` (explicit user refresh) bypasses the debounce."""
+        Debounced with an atomic per-measure cache marker so repeated polls /
+        focus-refetches while a compile is in flight can't fan out duplicate
+        compiles and re-spend Claude tokens. ``force`` (explicit user refresh)
+        bypasses the debounce. The compile task clears its marker when it
+        finishes, so the marker doubles as the "refresh in flight" signal the
+        ``page`` action reports back to the client."""
         from engine.tasks import compile_stock_quantitative, compile_stock_qualitative
 
-        if not force and not cache.add(self._warm_key(watched.id), "1", 90):
-            return  # a warm cycle for this ticker is already in flight
-        if force:
-            cache.set(self._warm_key(watched.id), "1", 90)
-        if force or page is None or page.recomputed_at is None:
-            compile_stock_quantitative.delay(str(watched.id))
-        if force or page is None or page.refreshed_at is None:
-            compile_stock_qualitative.delay(str(watched.id))
+        plan = (
+            ("quantitative", compile_stock_quantitative,
+             page is None or page.recomputed_at is None),
+            ("qualitative", compile_stock_qualitative,
+             page is None or page.refreshed_at is None),
+        )
+        for measure, task, missing in plan:
+            if not (force or missing):
+                continue
+            key = stockpage_warm_key(watched.id, measure)
+            if force:
+                cache.set(key, "1", STOCKPAGE_WARM_TTL)
+            elif not cache.add(key, "1", STOCKPAGE_WARM_TTL):
+                continue  # this measure's compile is already in flight
+            task.delay(str(watched.id))
 
     @extend_schema(responses=OpenApiTypes.OBJECT, operation_id="watchlist_page")
     @action(detail=True, methods=["get"],
@@ -172,7 +180,14 @@ class WatchedTickerViewSet(viewsets.ModelViewSet):
         if not ready:
             self._warm_stock_page(watched, page=page)
             return Response({"status": "computing", "ticker": watched.ticker}, status=202)
-        return Response(StockPageSerializer(page).data)
+        # ``refreshing``: a forced refresh keeps serving the last compiled page
+        # (the timestamps stay set) — this flag is how the client knows to keep
+        # polling until the recompile lands instead of silently showing stale
+        # numbers until its next focus refetch.
+        return Response({
+            **StockPageSerializer(page).data,
+            "refreshing": stockpage_refreshing(watched.id),
+        })
 
     @extend_schema(request=None, responses=OpenApiTypes.OBJECT, operation_id="watchlist_refresh")
     @action(detail=True, methods=["post"],
