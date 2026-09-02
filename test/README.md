@@ -20,19 +20,24 @@ test/
 ├── qtest                  # the runner: ./test/qtest run rest postgres …
 ├── framework/             # qtest's implementation (suite registry + toolchains)
 ├── backend/               # the pytest suite (Django + Celery + PostgreSQL)
-│   ├── conftest.py        #   shared fixtures + directory→marker mapping
-│   ├── feeder/            #   quant math, providers, bar cache, replay
-│   ├── engine/            #   evaluation, compiler, delivery
-│   ├── rest/              #   REST component invariants (route sweep, limits)
-│   ├── tasking/           #   Celery/Redis behavior + config invariants
-│   ├── storage/           #   PostgreSQL behavior (JSONB, locks, cascades)
-│   ├── system/            #   API surface, web-stack performance, contracts
-│   ├── journeys/          #   whole user sessions + the golden fixtures
-│   └── regressions/       #   known bugs pinned as xfail (see below)
+│   ├── conftest.py        #   shared fixtures + directory/file→marker mapping
+│   ├── identity/          #   the account guards (strategy cap, AI budget, GET /limits/)
+│   ├── markets/           #   quant math, condition trees, replay, providers, both bar caches
+│   ├── watchlist/         #   stock-page measures, n/m cadences, continuity snapshots
+│   ├── strategies/        #   compiler, evaluation, delivery, the pinned audit regressions
+│   ├── system/            #   cross-feature invariants: REST sweep + contracts + web stack,
+│   │                      #   Celery/Redis semantics, PostgreSQL behavior, the event bus
+│   └── journeys/          #   whole user sessions + the golden fixtures
 └── frontend/              # the vitest suite (pure logic + contract pins)
-    ├── api/               #   cursor math, the frontend contract pin
+    ├── contract/          #   the contract mirrors: types pin, cursor, readings, cost estimate
     └── realtime/          #   backoff, cache merges, realtime journeys
 ```
+
+The backend tree mirrors `backend/` one directory per feature app, plus `system/` for the
+invariants that span every app and `journeys/` for whole sessions. A test's **directory** says
+which feature it belongs to; its **marker** says which behavior area it proves (that is what
+`qtest` selects on). Feature directories map to one marker each and every file under `system/`
+names its own — the map lives at the top of `backend/conftest.py`.
 
 Two compatibility shims keep every existing entry point working:
 `backend/test` is a **symlink** to `test/backend/` (so `cd backend && pytest`
@@ -88,18 +93,19 @@ application's correctness rests on:
 
 | Suite | What it proves | Where |
 |---|---|---|
-| `rest` | The HTTP API behaves: every route the resolver serves demands auth unless explicitly classified public (a *discovery* sweep — adding an endpoint without classifying it fails); wire shapes match the DRF contract tests; `?limit=` is bounded; throttle scopes are configured; cross-tenant probes read as 404, never 403. | `backend/rest/`, `backend/system/` |
+| `rest` | The HTTP API behaves: every route the resolver serves demands auth unless explicitly classified public (a *discovery* sweep — adding an endpoint without classifying it fails); wire shapes match the DRF contract tests; `?limit=` is bounded; throttle scopes are configured; cross-tenant probes read as 404, never 403. | `backend/system/` (`test_api`, `test_contracts`, `test_rest_components`, `test_webstack`), `backend/identity/` |
 | `react` | The frontend logic behaves: alert-cache merges never lose a socket-delivered alert to a stale refetch, reconnect backoff is capped and jittered, cursor pagination survives absolute URLs, and `types.ts` still matches the golden fixtures. | `frontend/` |
-| `celery-redis` | The evaluation fleet behaves: the sweep claims each due strategy exactly once (and rolls the claim back if the broker enqueue fails), the per-strategy eval lock outlives the task time limit, delivery reconciliation re-enqueues only what never recorded an outcome, retention prunes on schedule, and the broker speaks JSON only — never pickle. | `backend/tasking/`, `backend/engine/` |
-| `postgres` | Storage behaves on the production engine: JSONB round-trips and containment queries, `CHECK` constraints and uniqueness enforced by the database itself, cascades vs `SET_NULL` on delete, a real two-connection `SELECT FOR UPDATE` block, the cursor-pagination index, and zero model↔migration drift. | `backend/storage/` |
+| `celery-redis` | The evaluation fleet behaves: the sweep claims each due strategy exactly once (and rolls the claim back if the broker enqueue fails), the per-strategy eval lock outlives the task time limit, delivery reconciliation re-enqueues only what never recorded an outcome, retention prunes on schedule, and the broker speaks JSON only — never pickle. | `backend/system/` (`test_celery_redis`, `test_events`), `backend/strategies/`, `backend/watchlist/` |
+| `postgres` | Storage behaves on the production engine: JSONB round-trips and containment queries, `CHECK` constraints and uniqueness enforced by the database itself, cascades vs `SET_NULL` on delete, a real two-connection `SELECT FOR UPDATE` block, the cursor-pagination index, and zero model↔migration drift. | `backend/system/test_postgres.py` |
 
 Supporting suites: `indicators` (every formula from the `math/` chapters
 pinned to hand-derived numbers), `journeys` (whole user sessions through the
 API), and `contracts` (the frontend half of the dual pin).
 
 Tests are matched to suites by **pytest markers**, applied automatically from
-the directory a test lives in (`test/backend/conftest.py`); the registry lives
-in `test/framework/suites.py`. `pytest -m rest` works directly too.
+the directory (or, under `system/`, the file) a test lives in
+(`test/backend/conftest.py`); the registry lives in `test/framework/suites.py`.
+`pytest -m rest` works directly too.
 
 ---
 
@@ -110,7 +116,7 @@ goes stale:
 
 1. **The contract dual pin.** `backend/journeys/fixtures/*.json` is the single
    source of truth for wire shapes. `test_contract_fixtures.py` proves the
-   *live API* produces exactly those shapes; `frontend/api/contracts.test.ts`
+   *live API* produces exactly those shapes; `frontend/contract/contracts.test.ts`
    proves `types.ts` matches the *same files* — at compile time, via
    exhaustive key maps. Changing a serializer fails the backend pin → you
    update the fixture → the frontend stops compiling until `types.ts` moves in
@@ -129,12 +135,13 @@ goes stale:
 
 ---
 
-## Audit regressions (`backend/regressions/`)
+## Audit regressions (`backend/strategies/test_known_bugs.py`)
 
 The 2026-08 audit found real defects; each deterministic one was first pinned
 as a non-strict `xfail` test encoding the **desired** behavior. The fixes have
 since landed, the markers are gone, and the tests now guard the fixed behavior
-permanently:
+permanently — filed with the feature they belong to (B1–B6 with the
+strategies, B7 with the indicator math in `markets/test_indicators.py`):
 
 | ID | Defect (fixed) |
 |---|---|
@@ -146,21 +153,21 @@ permanently:
 | AUDIT-B6 | With an AI node present, the graph compiler silently dropped conditions not wired into the tree; orphans are now a compile error. |
 | AUDIT-B7 | The MACD histogram unmasked values before its own warm-up standard; the mask now covers `slow + signal − 1` bars. |
 
-That is the pattern for future finds: pin the bug as xfail, fix it, drop the
-marker in the fixing PR. The full audit (including the frontend and security
-findings, all since patched) is in the description of the PR that introduced
-this folder.
-
----
+That is the pattern for future finds: pin the bug as xfail next to the code it
+concerns, fix it, drop the marker in the fixing PR. The full audit (including
+the frontend and security findings, all since patched) is in the description
+of the PR that introduced these tests.
 
 ## Adding a test
 
-1. Put it in the `test/backend/` (or `test/frontend/`) directory whose
-   *behavior area* it belongs to — the marker, and therefore its `qtest`
-   suite, follows from the directory.
+1. Put it in the `test/backend/` directory of the **feature** it exercises
+   (or `system/` when it spans features, `journeys/` for a whole session);
+   the marker, and therefore its `qtest` suite, follows from the directory —
+   or from the filename under `system/`. Frontend tests go under
+   `test/frontend/` by module.
 2. If it changes a wire shape, update the fixture and both pins in the same
    PR (the suite will force you to anyway — that's the point).
 3. Pin behavior to **hand-derived values**, never to the code's own output —
    `test_indicators.py` is the house style.
 4. New endpoint? The REST sweep will fail until you classify it (public or
-   authenticated) in `test/backend/rest/test_rest_components.py`.
+   authenticated) in `test/backend/system/test_rest_components.py`.

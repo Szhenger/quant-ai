@@ -4,7 +4,7 @@ PY := backend/.venv/bin
 export PATH := /opt/homebrew/bin:$(PATH)
 
 .PHONY: help venv db-init db-start db-stop db-status test test-frontend qtest \
-        migrations-check check build-frontend test-docker up down ci
+        migrations-check check check-links build-frontend test-docker up down ci
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -43,6 +43,9 @@ check: ## Django system checks
 	cd backend && DJANGO_SETTINGS_MODULE=config.test_settings \
 		./.venv/bin/python manage.py check
 
+check-links: ## Fail if any relative link in a Markdown file points at a missing file
+	python3 tool/checklinks.py
+
 build-frontend: ## Type-check + production build of the frontend
 	cd frontend && npm run build
 
@@ -55,4 +58,4 @@ up: ## Full local stack via Docker (db, redis, api, worker, beat)
 down: ## Tear down the Docker stack
 	docker compose -f runtime/docker-compose.yml down
 
-ci: migrations-check check test build-frontend ## Everything CI runs that can run locally
+ci: migrations-check check check-links test build-frontend ## Everything CI runs that can run locally

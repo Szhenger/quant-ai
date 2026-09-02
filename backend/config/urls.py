@@ -3,7 +3,8 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
-from identity.views import HealthView, LogoutView, RegisterView
+from common.health import HealthView
+from identity.views import LogoutView, RegisterView
 
 urlpatterns = [
     path("admin/", admin.site.urls),
@@ -19,11 +20,11 @@ urlpatterns = [
     # server-side instead of only clearing the client's storage.
     path("api/v1/auth/logout/", LogoutView.as_view(), name="logout"),
 
-    # Workspaces + watchlist
-    path("api/v1/", include("identity.urls")),
-
-    # Strategies, alerts, market analysis
-    path("api/v1/", include("engine.urls")),
+    # One include per feature; each app owns its own routes.
+    path("api/v1/", include("identity.urls")),    # workspaces, account limits
+    path("api/v1/", include("watchlist.urls")),   # watchlist + compiled stock pages
+    path("api/v1/", include("markets.urls")),     # indicator catalog, market analysis
+    path("api/v1/", include("strategies.urls")),  # strategies, alerts
 
     # OpenAPI
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

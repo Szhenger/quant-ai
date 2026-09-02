@@ -8,7 +8,7 @@ import {
   prependAlert,
   unreadIds,
 } from "../../../frontend/src/realtime/merge";
-import type { Alert } from "../../../frontend/src/api/types";
+import type { Alert } from "../../../frontend/src/contract/types";
 
 function alert(id: string, is_read = false): Alert {
   return {

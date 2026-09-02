@@ -19,7 +19,7 @@ real bugs live, and it cannot be bolted on afterward.
 
 ## The reference docs
 
-- [**`SPECIFICATION.md`**](SPECIFICATION.md) — the engineering specification: what the
+- [**`SPECIFICATION.md`**](../SPECIFICATION.md) — the engineering specification: what the
   system does, the languages, frameworks and services it is built from, the runtime
   topology, and the contracts and invariants every layer must uphold.
 
@@ -46,5 +46,5 @@ Two mechanisms keep these pages from drifting into fiction:
 2. **The contract is executable.** Chapter 9's wire shapes are pinned by golden fixtures
    in `test/backend/journeys/fixtures/`, enforced from the backend by
    `test_contract_fixtures.py` and from the frontend at compile time by
-   `frontend/src/api/contracts.test.ts`. The prose describes a contract that tests refuse
+   `test/frontend/contract/contracts.test.ts`. The prose describes a contract that tests refuse
    to let either side break silently.

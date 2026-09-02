@@ -126,7 +126,7 @@ Same 17%, now as a count you can see. The **190 false alarms swamp the 40 true o
 
 The first defense is almost embarrassingly simple, and it attacks a specific kind of false alert. Suppose your condition is `z-score < −2`, and the stock stays cheap for a week. The strategy is evaluated every few minutes. Without protection, it would fire **on every single evaluation** — hundreds of identical alerts for *one* underlying event. That's not new evidence; it's the same evidence, stuttered.
 
-The **cooldown** suppresses re-alerts within a time window. Once a strategy fires, it goes quiet for `cooldown_minutes` before it is allowed to fire again. In [`backend/engine/tasks.py`](../backend/engine/tasks.py), inside `_run_evaluation`, right after the quant condition passes:
+The **cooldown** suppresses re-alerts within a time window. Once a strategy fires, it goes quiet for `cooldown_minutes` before it is allowed to fire again. In [`backend/strategies/tasks.py`](../backend/strategies/tasks.py), inside `_run_evaluation`, right after the quant condition passes:
 
 ```python
 # Respect the cooldown so a persistent condition doesn't spam the user.

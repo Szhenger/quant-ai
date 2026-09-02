@@ -64,3 +64,15 @@ jobs:
       - name: Frontend unit tests (vitest)
         working-directory: frontend
         run: npm test
+
+  docs:
+    name: Docs (link check)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # The docs promise every claim points at a real file; this is the check
+      # that keeps a moved file from silently orphaning the prose about it.
+      - name: Markdown links resolve
+        run: python3 tool/checklinks.py

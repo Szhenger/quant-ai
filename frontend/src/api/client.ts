@@ -1,17 +1,38 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
-import { useAuthStore } from "../store/auth";
-import type { Paginated } from "./types";
+import { API_BASE } from "../config";
+import type { Paginated } from "../contract/types";
 
-// Absolute bases for split-origin deployments (static frontend + API service).
-// Default to same-origin relative paths, which the Vite dev proxy serves.
-export const API_BASE = import.meta.env.VITE_API_BASE || "/api/v1";
-export const WS_BASE =
-  import.meta.env.VITE_WS_BASE || window.location.origin.replace(/^http/, "ws");
+/**
+ * What the transport needs from the session, and nothing more. The session
+ * store (session/auth.ts) binds itself here at load time; this module never
+ * imports the store, so the dependency runs one way: session -> api.
+ */
+export interface SessionBridge {
+  getAccess: () => string | null;
+  getRefresh: () => string | null;
+  getWorkspaceId: () => string | null;
+  setTokens: (access: string, refresh: string) => void;
+  /** The refresh token was rejected: the session is over everywhere. */
+  endSession: () => void;
+}
+
+let session: SessionBridge = {
+  getAccess: () => null,
+  getRefresh: () => null,
+  getWorkspaceId: () => null,
+  setTokens: () => undefined,
+  endSession: () => undefined,
+};
+
+export function bindSession(bridge: SessionBridge): void {
+  session = bridge;
+}
 
 const api = axios.create({ baseURL: API_BASE });
 
 api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
-  const { access, workspaceId } = useAuthStore.getState();
+  const access = session.getAccess();
+  const workspaceId = session.getWorkspaceId();
   if (access) {
     config.headers.set("Authorization", `Bearer ${access}`);
   }
@@ -25,7 +46,7 @@ api.interceptors.request.use((config: InternalAxiosRequestConfig) => {
 let refreshPromise: Promise<string | null> | null = null;
 
 async function refreshAccessToken(): Promise<string | null> {
-  const { refresh } = useAuthStore.getState();
+  const refresh = session.getRefresh();
   if (!refresh) return null;
   try {
     // Use a bare axios call so we don't recurse through these interceptors.
@@ -37,7 +58,7 @@ async function refreshAccessToken(): Promise<string | null> {
       { refresh },
     );
     const access = res.data.access;
-    useAuthStore.getState().setTokens(access, res.data.refresh ?? refresh);
+    session.setTokens(access, res.data.refresh ?? refresh);
     return access;
   } catch (err) {
     // Only the refresh endpoint REJECTING the token ends the session (null →
@@ -52,7 +73,7 @@ async function refreshAccessToken(): Promise<string | null> {
 
 /**
  * Restore the in-memory access token after a page load. The access token is
- * deliberately NOT persisted (see store/auth.ts) — this trades it back in
+ * deliberately NOT persisted (see session/auth.ts) — this trades it back in
  * from the persisted refresh token on boot. Resolves false when the session
  * is truly over (refresh missing or rejected).
  */
@@ -101,7 +122,7 @@ api.interceptors.response.use(
         return api(original);
       }
       // The refresh token was rejected: the session is over everywhere.
-      useAuthStore.getState().logout();
+      session.endSession();
     }
     return Promise.reject(error);
   },

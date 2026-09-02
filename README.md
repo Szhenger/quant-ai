@@ -59,7 +59,7 @@ Then the course proper. Each chapter ends with the same three sections: **In the
 | # | Chapter | The question it answers | Code it unlocks |
 |---|---|---|---|
 | 0 | [Preface](math/00-preface.md) | How do I read this, and what do I need? | — |
-| 1 | [What is a market?](math/01-what-is-a-market.md) | What *is* a price, and what does it mean for it to "go up"? | `feeder/providers.py`, `PCT_CHANGE` |
+| 1 | [What is a market?](math/01-what-is-a-market.md) | What *is* a price, and what does it mean for it to "go up"? | `markets/providers.py`, `PCT_CHANGE` |
 | 2 | [The statistics of returns](math/02-statistics-of-returns.md) | If prices are random, what can we possibly know? | `numpy`, sample mean & std |
 | 3 | [The z-score & mean reversion](math/03-zscore-and-mean-reversion.md) | "This looks unusually cheap." Says who? | `Z_SCORE`, `_zscore_series` |
 | 4 | [Trend & moving averages](math/04-trend-and-moving-averages.md) | How do you measure a trend without fooling yourself? | `SMA_CROSS`, `_sma`, `_ema` |
@@ -67,8 +67,8 @@ Then the course proper. Each chapter ends with the same three sections: **In the
 | 6 | [Volatility & the square root of time](math/06-volatility.md) | How much does this thing *usually* move, and over what horizon? | `VOLATILITY`, `_volatility_series` |
 | 7 | [Signal vs. noise](math/07-signal-vs-noise.md) | My rule just fired. Should I believe it? | cooldown, `advisor/claude_client.py` |
 | 8 | [From a formula to a system](documentation/08-from-math-to-system.md) | How do you turn an equation into a service that runs forever? | the whole backend |
-| 9 | [The API as a contract](documentation/09-the-api-contract.md) | How do humans and machines talk to this safely? | `engine/urls.py`, JWT, WebSockets |
-| 10 | [Concurrency & safety](documentation/10-concurrency-and-safety.md) | Why did it send the same alert twice, and how do we make it *never* happen? | `engine/tasks.py` |
+| 9 | [The API as a contract](documentation/09-the-api-contract.md) | How do humans and machines talk to this safely? | `strategies/urls.py`, JWT, WebSockets |
+| 10 | [Concurrency & safety](documentation/10-concurrency-and-safety.md) | Why did it send the same alert twice, and how do we make it *never* happen? | `strategies/tasks.py` |
 
 Chapters 0–7 live in [`math/`](math/README.md); the engineering chapters 8–10 live in [`documentation/`](documentation/README.md), alongside the reference docs. Practical, in-the-same-voice guides for when you're actually hacking on it: [**`backend/README.md`**](backend/README.md) and [**`frontend/README.md`**](frontend/README.md).
 

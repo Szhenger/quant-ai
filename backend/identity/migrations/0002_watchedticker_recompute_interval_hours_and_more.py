@@ -2,7 +2,7 @@
 
 import django.core.validators
 import django.db.models.deletion
-import identity.models
+import watchlist.models
 from django.db import migrations, models
 
 
@@ -16,12 +16,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='watchedticker',
             name='recompute_interval_hours',
-            field=models.PositiveIntegerField(default=identity.models._default_recompute_hours, validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(2160)]),
+            field=models.PositiveIntegerField(default=watchlist.models._default_recompute_hours, validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(2160)]),
         ),
         migrations.AddField(
             model_name='watchedticker',
             name='refresh_interval_hours',
-            field=models.PositiveIntegerField(default=identity.models._default_refresh_hours, validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(720)]),
+            field=models.PositiveIntegerField(default=watchlist.models._default_refresh_hours, validators=[django.core.validators.MinValueValidator(1), django.core.validators.MaxValueValidator(720)]),
         ),
         migrations.CreateModel(
             name='StockPage',

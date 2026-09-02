@@ -9,7 +9,7 @@ Three pieces:
 * ``load_fixture`` / ``assert_same_shape`` — the golden contract fixtures in
   ``fixtures/*.json`` are the single wire-format source of truth shared with the
   frontend: ``test_contract_fixtures.py`` proves the live API matches them
-  key-for-key, and ``frontend/src/api/contracts.test.ts`` proves ``types.ts``
+  key-for-key, and ``test/frontend/contract/contracts.test.ts`` proves ``types.ts``
   matches the very same files. A shape change therefore fails one side until
   BOTH are updated together, deliberately.
 
@@ -40,7 +40,7 @@ def assert_same_shape(actual, expected, path="$"):
         assert not missing and not extra, (
             f"{path}: contract drift — missing keys {sorted(missing)}, "
             f"unexpected keys {sorted(extra)}. Update fixtures/*.json AND "
-            f"frontend/src/api/types.ts (+ contracts.test.ts) together."
+            f"frontend/src/contract/types.ts (+ contracts.test.ts) together."
         )
         for key, value in expected.items():
             if isinstance(value, (dict, list)):
@@ -80,7 +80,7 @@ class ConsoleClient:
         self.refresh = None
         self.workspace_id = None
 
-    # -- auth flow (mirrors store/auth.ts) --------------------------------
+    # -- auth flow (mirrors session/auth.ts) --------------------------------
     def register(self, username, email, password):
         return self.api.post("/api/v1/auth/register/", {
             "username": username, "email": email, "password": password,

@@ -72,7 +72,7 @@ deliberate decision (`backend/config/asgi.py` reads top-to-bottom in this order)
 2. **Token in the subprotocol header, never the URL** — a browser cannot set an
    `Authorization` header on a WebSocket, and a `?token=` query string would land in
    every proxy access log on the path. The subprotocol list is the one header a browser
-   allows, so the JWT rides there (`engine/ws_auth.py` resolves it, and re-checks
+   allows, so the JWT rides there (`strategies/ws_auth.py` resolves it, and re-checks
    `is_active`, mirroring the HTTP path; the consumer echoes `quantai.v1` on accept).
 3. **Workspace ownership** — the consumer verifies the workspace in the URL is really
    yours before joining its channel group. Same two checkpoints as HTTP: identity, then

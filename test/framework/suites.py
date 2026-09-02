@@ -49,7 +49,7 @@ SUITES = [
           marker="journeys", focus=False),
     Suite("contracts", "vitest",
           "Frontend half of the contract dual pin (types.ts vs fixtures)",
-          paths=["api/contracts.test.ts"], focus=False),
+          paths=["contract/contracts.test.ts"], focus=False),
     Suite("backend", "pytest",
           "The entire backend pytest suite (all markers)", focus=False),
 ]

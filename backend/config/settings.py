@@ -97,9 +97,11 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "channels",
 
-    # QuantAI apps
+    # QuantAI apps (the ones with models or Celery tasks; ``markets``, ``advisor``
+    # and ``common`` are plain libraries and need no registration)
     "identity",
-    "engine",
+    "watchlist",
+    "strategies",
 ]
 
 MIDDLEWARE = [
@@ -175,7 +177,7 @@ CELERY_RESULT_SERIALIZER = "json"
 CELERY_TASK_TRACK_STARTED = True
 CELERY_WORKER_CONCURRENCY = int(os.environ.get("CELERY_CONCURRENCY", "4"))
 # Hard-stop runaway tasks BELOW the per-strategy eval lock TTL (300s in
-# engine.tasks), so a lock can never expire while its task is still running.
+# strategies.tasks), so a lock can never expire while its task is still running.
 CELERY_TASK_SOFT_TIME_LIMIT = int(os.environ.get("CELERY_TASK_SOFT_TIME_LIMIT", "210"))
 CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "240"))
 # Results expire quickly: nothing reads a stored result except the eager path
@@ -185,25 +187,29 @@ CELERY_TASK_TIME_LIMIT = int(os.environ.get("CELERY_TASK_TIME_LIMIT", "240"))
 CELERY_RESULT_EXPIRES = int(os.environ.get("CELERY_RESULT_EXPIRES", "3600"))
 CELERY_BEAT_SCHEDULE = {
     "sweep-due-strategies-every-minute": {
-        "task": "engine.tasks.sweep_due_strategies",
+        "task": "strategies.tasks.sweep_due_strategies",
         "schedule": 60.0,
     },
     # Delivery reconciliation: re-enqueue channels that never recorded an
     # outcome (worker died between the alert's commit and the fan-out).
     "reconcile-undelivered-alerts": {
-        "task": "engine.tasks.reconcile_undelivered_alerts",
+        "task": "strategies.tasks.reconcile_undelivered_alerts",
         "schedule": 300.0,
     },
     # Retention: unbounded tables degrade to a stall over months, not days.
-    "prune-expired-records-daily": {
-        "task": "engine.tasks.prune_expired_records",
+    "prune-expired-alerts-daily": {
+        "task": "strategies.tasks.prune_expired_alerts",
+        "schedule": 24 * 3600.0,
+    },
+    "flush-expired-tokens-daily": {
+        "task": "identity.tasks.flush_expired_tokens",
         "schedule": 24 * 3600.0,
     },
     # Watchlist stock pages: refresh due tickers (qualitative every n hours,
     # macro-quantitative recompute every m hours). The tick is frequent; the
     # per-ticker n/m intervals decide what actually recompiles each pass.
     "refresh-stock-pages": {
-        "task": "engine.tasks.refresh_stock_pages",
+        "task": "watchlist.tasks.refresh_stock_pages",
         "schedule": float(os.environ.get("STOCKPAGE_SWEEP_SECONDS", str(30 * 60))),
     },
 }
@@ -313,7 +319,7 @@ CORS_ALLOW_HEADERS = [*default_headers, "x-workspace-id"]
 # auto -> use yfinance when importable/online, else deterministic synthetic data.
 MARKETDATA_PROVIDER = os.environ.get("MARKETDATA_PROVIDER", "auto")
 
-# --- Interactive read-path compute cache (core.caching) ----------------------
+# --- Interactive read-path compute cache (common.caching) --------------------
 # Fleet-wide (Redis) TTLs for the finished analysis/replay payloads. Short for
 # analysis (an intraday snapshot), longer for replay (a function of daily bars
 # and the condition tree — it only changes when the day rolls or the tree does).

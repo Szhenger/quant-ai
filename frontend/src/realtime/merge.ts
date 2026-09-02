@@ -3,7 +3,7 @@
  * React Query imports so the concurrency-sensitive logic (dedupe on socket
  * prepend, optimistic read-state transitions) is unit-testable in isolation.
  */
-import type { Alert, CursorPage } from "../api/types";
+import type { Alert, CursorPage } from "../contract/types";
 
 export interface AlertPages {
   pages: CursorPage<Alert>[];

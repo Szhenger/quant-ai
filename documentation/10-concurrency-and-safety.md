@@ -67,7 +67,7 @@ The fix is a discipline with a name: **exactly once.** Not at-least-once (that's
 
 Kill the first race: stop two sweeps from enqueuing the same strategy. The naïve sweep does read-modify-write across two statements — *read* the strategy, then (much later) *write* `last_evaluated_at`. The gap between them is the vulnerability.
 
-The fix collapses read and write into **one atomic database operation**: a conditional `UPDATE`. From [`backend/engine/tasks.py`](../backend/engine/tasks.py):
+The fix collapses read and write into **one atomic database operation**: a conditional `UPDATE`. From [`backend/strategies/tasks.py`](../backend/strategies/tasks.py):
 
 ```python
         # Atomically claim: only enqueue if THIS row still has the last_evaluated_at
@@ -156,7 +156,7 @@ Two holes plugged. One left, and it's about *crashes*, not concurrency. When the
 1. Create the `Alert` row.
 2. Stamp `last_triggered_at = now` (which arms the cooldown).
 
-Suppose we did them as two separate statements and the process died *between* them: an `Alert` exists, but `last_triggered_at` was never stamped. On the next evaluation the cooldown check sees `last_triggered_at` unchanged and — fires **again.** A crash at the wrong instant becomes a duplicate alert. We need both writes to be **all-or-nothing**, and that is exactly what a **transaction** guarantees. From [`backend/engine/tasks.py`](../backend/engine/tasks.py):
+Suppose we did them as two separate statements and the process died *between* them: an `Alert` exists, but `last_triggered_at` was never stamped. On the next evaluation the cooldown check sees `last_triggered_at` unchanged and — fires **again.** A crash at the wrong instant becomes a duplicate alert. We need both writes to be **all-or-nothing**, and that is exactly what a **transaction** guarantees. From [`backend/strategies/tasks.py`](../backend/strategies/tasks.py):
 
 ```python
         # S2: create the alert AND stamp the trigger in one transaction, so a crash
@@ -213,7 +213,7 @@ Pull any one and a duplicate (or a wedged strategy, or an orphaned alert) creeps
 
 ## 10.7 In the code — the regression test
 
-Concurrency bugs are famously hard to test — you can't reliably make two threads collide on cue. The trick the suite uses is to **simulate the collision**: seize the shared resource yourself, then prove the code no-ops instead of double-firing. From [`test/backend/engine/test_evaluation.py`](../test/backend/engine/test_evaluation.py):
+Concurrency bugs are famously hard to test — you can't reliably make two threads collide on cue. The trick the suite uses is to **simulate the collision**: seize the shared resource yourself, then prove the code no-ops instead of double-firing. From [`test/backend/strategies/test_evaluation.py`](../test/backend/strategies/test_evaluation.py):
 
 ```python
 def test_lock_prevents_concurrent_evaluation(workspace):
