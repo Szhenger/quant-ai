@@ -28,9 +28,14 @@ test/
 │   ├── system/            #   cross-feature invariants: REST sweep + contracts + web stack,
 │   │                      #   Celery/Redis semantics, PostgreSQL behavior, the event bus
 │   └── journeys/          #   whole user sessions + the golden fixtures
-└── frontend/              # the vitest suite (pure logic + contract pins)
+└── frontend/              # the vitest suite (pure logic, contract pins, rendered components)
+    ├── setup.ts           #   jest-dom matchers + unmount after every test
+    ├── helpers/           #   the fake wire (axios adapter) and the render/sign-in helpers
     ├── contract/          #   the contract mirrors: types pin, cursor, readings, cost estimate
-    └── realtime/          #   backoff, cache merges, realtime journeys
+    ├── realtime/          #   backoff, cache merges, realtime journeys, the socket wrapper
+    ├── session/           #   the transport (single-flight refresh), the auth store, the login page
+    ├── features/          #   the three panels rendered against the fake wire
+    └── app/               #   the shell: session restore, tabs, logout
 ```
 
 The backend tree mirrors `backend/` one directory per feature app, plus `system/` for the
@@ -84,6 +89,16 @@ suite against a throwaway PostgreSQL 16 in Docker, plus a migration-drift and
 system-check pass; the frontend job type-checks (`tsc` covers
 `test/frontend/` too), builds, and runs vitest.
 
+**How the frontend tests talk to a server that isn't there.** Nothing in
+`frontend/src` is mocked. `helpers/fakeApi.ts` installs a route table as the
+axios *adapter* — the one seam axios provides for replacing the wire — on the
+app's own `api` instance, so the real interceptors (bearer + workspace
+headers, the single-flight 401 refresh, session teardown) run in every test.
+Component tests render with React Testing Library under jsdom (each such file
+declares `@vitest-environment jsdom`; pure-logic files stay in node) and a
+fresh React Query client per test; the socket wrapper runs against a scripted
+fake `WebSocket` under fake timers.
+
 ---
 
 ## The four focus areas
@@ -94,7 +109,7 @@ application's correctness rests on:
 | Suite | What it proves | Where |
 |---|---|---|
 | `rest` | The HTTP API behaves: every route the resolver serves demands auth unless explicitly classified public (a *discovery* sweep — adding an endpoint without classifying it fails); wire shapes match the DRF contract tests; `?limit=` is bounded; throttle scopes are configured; cross-tenant probes read as 404, never 403. | `backend/system/` (`test_api`, `test_contracts`, `test_rest_components`, `test_webstack`), `backend/identity/` |
-| `react` | The frontend logic behaves: alert-cache merges never lose a socket-delivered alert to a stale refetch, reconnect backoff is capped and jittered, cursor pagination survives absolute URLs, and `types.ts` still matches the golden fixtures. | `frontend/` |
+| `react` | The frontend behaves: alert-cache merges never lose a socket-delivered alert to a stale refetch, reconnect backoff is capped and jittered, a missed heartbeat pong tears the socket down, parallel 401s refresh the token exactly once, a rejected refresh ends the session everywhere, the persisted session never contains the access token, each panel renders the API's shapes and drives its mutations, and `types.ts` still matches the golden fixtures. | `frontend/` |
 | `celery-redis` | The evaluation fleet behaves: the sweep claims each due strategy exactly once (and rolls the claim back if the broker enqueue fails), the per-strategy eval lock outlives the task time limit, delivery reconciliation re-enqueues only what never recorded an outcome, retention prunes on schedule, and the broker speaks JSON only — never pickle. | `backend/system/` (`test_celery_redis`, `test_events`), `backend/strategies/`, `backend/watchlist/` |
 | `postgres` | Storage behaves on the production engine: JSONB round-trips and containment queries, `CHECK` constraints and uniqueness enforced by the database itself, cascades vs `SET_NULL` on delete, a real two-connection `SELECT FOR UPDATE` block, the cursor-pagination index, and zero model↔migration drift. | `backend/system/test_postgres.py` |
 

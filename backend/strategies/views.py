@@ -30,6 +30,35 @@ def _int_param(request, name, default):
         return default
 
 
+def _replay_window(ticker: str, tree: dict, days: int, cooldown_bars: int) -> dict:
+    """Replay ``tree`` over the trailing ``days`` bars of ``ticker``.
+
+    Indicator lookback is fetched IN ADDITION to ``days``, so every reported
+    bar evaluates on warmed-up indicators and ``bars == days`` (barring short
+    upstream data). Fires before the window are not reported but do consume
+    the cooldown, exactly as the live cooldown would carry into the window.
+    """
+    provider = get_provider()
+    series = provider.history(ticker, days=days + condition_lookback_days(tree))
+    result = replay_condition(tree, series.closes, series.dates, cooldown_bars=cooldown_bars)
+    # Trim to the trailing `days` bars and re-base fire indices so that
+    # fires[i].index always indexes into the returned dates/closes arrays.
+    offset = max(0, len(series.closes) - days)
+    fires = [{**f, "index": f["index"] - offset}
+             for f in result["fires"] if f["index"] >= offset]
+    closes = series.closes[offset:]
+    dates = series.dates[offset:]
+    return {
+        "provider": "synthetic" if series.synthetic else provider.name,
+        "synthetic": series.synthetic,
+        "bars": len(closes),
+        "fire_count": len(fires),
+        "fires": fires,
+        "dates": dates,
+        "closes": closes,
+    }
+
+
 class StrategyViewSet(viewsets.ModelViewSet):
     """CRUD for user-defined market-monitoring strategies, scoped to the active workspace."""
 
@@ -169,31 +198,6 @@ class StrategyViewSet(viewsets.ModelViewSet):
         days = max(30, min(_int_param(request, "days", 365), 1000))
         cooldown_bars = max(0, min(_int_param(request, "cooldown_bars", 0), 365))
 
-        def compute():
-            provider = get_provider()
-            series = provider.history(
-                strategy.ticker, days=days + condition_lookback_days(tree)
-            )
-            result = replay_condition(
-                tree, series.closes, series.dates, cooldown_bars=cooldown_bars
-            )
-            # Trim to the trailing `days` bars and re-base fire indices so that
-            # fires[i].index always indexes into the returned dates/closes arrays.
-            offset = max(0, len(series.closes) - days)
-            fires = [{**f, "index": f["index"] - offset}
-                     for f in result["fires"] if f["index"] >= offset]
-            closes = series.closes[offset:]
-            dates = series.dates[offset:]
-            return {
-                "provider": "synthetic" if series.synthetic else provider.name,
-                "synthetic": series.synthetic,
-                "bars": len(closes),
-                "fire_count": len(fires),
-                "fires": fires,
-                "dates": dates,
-                "closes": closes,
-            }
-
         # Content-addressed: keyed by what the replay is a function of — the
         # condition tree, ticker and window — NOT the strategy id, so identical
         # conditions (across strategies or users) share one cache entry. Market
@@ -206,7 +210,10 @@ class StrategyViewSet(viewsets.ModelViewSet):
             "cooldown_bars": cooldown_bars,
             "provider": settings.MARKETDATA_PROVIDER,
         })
-        replayed, _ = cached_compute(key, provenance_ttl(settings.REPLAY_CACHE_TTL), compute)
+        replayed, _ = cached_compute(
+            key, provenance_ttl(settings.REPLAY_CACHE_TTL),
+            lambda: _replay_window(strategy.ticker, tree, days, cooldown_bars),
+        )
 
         payload = {
             "strategy_id": str(strategy.id),
