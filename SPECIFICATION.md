@@ -112,7 +112,7 @@ The system SHALL provide:
 | `axios` | The HTTP client with auth/workspace headers and error normalisation (`src/api/client.ts`) |
 | `zustand` | Small client-side stores: persisted auth session (`src/session/auth.ts`) and realtime connection state (`src/realtime/store.ts`) |
 | `reactflow` | The visual strategy graph builder — asset, quant, AI and delivery nodes compiled server-side into a condition tree; lazy-loaded so it costs nothing until opened |
-| `vitest` | The frontend test suite, including the golden-fixture contract tests that pin `types.ts` to the backend's `test/backend/journeys/fixtures/*.json` |
+| `vitest` + `@testing-library/react` + `jsdom` | The frontend test suite: pure logic, the golden-fixture contract tests that pin `types.ts` to the backend's `test/backend/journeys/fixtures/*.json`, the transport and session store against a fake wire (axios adapter), and every panel rendered |
 | `typescript` | Compile-time half of the API contract; `npm run build` type-checks before bundling |
 
 ## 6. Runtime topology

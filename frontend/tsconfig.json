@@ -16,11 +16,13 @@
     "isolatedModules": true,
     "forceConsistentCasingInFileNames": true,
     // The vitest files live outside this package (test/frontend), so bare
-    // imports like "vitest" can't be found by walking up from the test file;
-    // map them back into this package's node_modules for the type-checker.
+    // imports like "vitest" or "@testing-library/react" can't be found by
+    // walking up from the test file; map them back into this package's
+    // node_modules for the type-checker (vite.config.ts does the same for
+    // the runtime).
     "baseUrl": ".",
     "paths": {
-      "vitest": ["./node_modules/vitest"]
+      "*": ["./node_modules/@types/*", "./node_modules/*"]
     }
   },
   "include": ["src", "vite.config.ts", "../test/frontend"]

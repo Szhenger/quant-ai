@@ -162,13 +162,29 @@ Production build and tests:
 
 ```bash
 npm run build      # tsc type-check, then a static Vite bundle in dist/
-npm test           # vitest: pure realtime logic + journey sequences + wire-contract pins
+npm test           # vitest: pure logic, wire-contract pins, and every panel rendered against a fake wire
 ```
 
 The vitest files live with the rest of the suite at the repo root, in
 [`test/frontend/`](../test/README.md); `npm test` (and `tsc`) reach out to them from here.
 
-Two of those test files are part of the cross-stack **UX-invariant framework**:
+Three layers, all under `test/frontend/`:
+
+- **Pure modules** (`realtime/`, `contract/`): backoff, cache merges, cursor math, readings,
+  the cost estimate — table-driven, no DOM.
+- **The transport and the session** (`session/`): `api/client.ts` and `session/auth.ts` run
+  against a fake wire installed at the axios adapter boundary, so the real interceptors are
+  under test — parallel 401s refresh exactly once, a rejected refresh ends the session
+  everywhere, a transient refresh failure fails only its request, and the persisted session
+  never contains the access token. The socket wrapper (`realtime/socket.test.ts`) runs against
+  a scripted `WebSocket` with fake timers: heartbeat, missed-pong teardown, backoff.
+- **Rendered components** (`features/`, `app/`, the login page): each panel renders under
+  jsdom with React Testing Library against the same fake wire, and its mutations are asserted
+  on the wire — mark-read is optimistic, delete needs two clicks, a queued evaluation resolves
+  when the worker's event lands in the realtime store, a restored session renders before the
+  workspace does.
+
+Two of those files are part of the cross-stack **UX-invariant framework**:
 
 - `test/frontend/contract/contracts.test.ts` pins `contract/types.ts` against the golden wire fixtures in
   `test/backend/journeys/fixtures/` — the same files the backend's
