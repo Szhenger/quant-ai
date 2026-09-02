@@ -122,6 +122,37 @@ def _send_email(alert) -> dict:
         return {"ok": False, "detail": str(exc)}
 
 
+def _signed_webhook(alert, strategy):
+    """The delivery body and headers. Signs ``"<timestamp>.<body bytes>"`` so
+    the receiver can verify with the strategy's ``webhook_secret`` (exposed
+    read-only in the API) AND reject replays by checking the timestamp."""
+    body = json.dumps(_payload(alert), separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+    # Delivery is at-least-once: a response lost after the receiver processed
+    # the POST is retried, and the reconciliation sweep may re-send after a
+    # crash. X-QuantAI-Alert-Id is the idempotency key — receivers must
+    # dedupe on it.
+    headers = {"Content-Type": "application/json",
+               "X-QuantAI-Timestamp": timestamp,
+               "X-QuantAI-Alert-Id": str(alert.id)}
+    if strategy.webhook_secret:
+        signature = hmac.new(strategy.webhook_secret.encode(),
+                             f"{timestamp}.".encode() + body,
+                             hashlib.sha256).hexdigest()
+        headers["X-QuantAI-Signature"] = f"sha256={signature}"
+    return body, headers
+
+
+def _webhook_outcome(resp) -> dict:
+    """Classify an HTTP response as delivered, retryable, or permanently failed."""
+    if resp.ok:
+        return {"ok": True, "detail": f"HTTP {resp.status_code}"}
+    # 3xx: redirects are deliberately not followed. 4xx (bar 408/429): the
+    # receiver rejected the delivery — retrying the same request is futile.
+    permanent = 300 <= resp.status_code < 500 and resp.status_code not in (408, 429)
+    return {"ok": False, "permanent": permanent, "detail": f"HTTP {resp.status_code}"}
+
+
 def _send_webhook(alert) -> dict:
     strategy = alert.strategy
     if strategy is None or not strategy.webhook_url:
@@ -143,23 +174,7 @@ def _send_webhook(alert) -> dict:
     try:
         import requests
 
-        # Sign "<timestamp>.<body bytes>" so the receiver can verify with the
-        # strategy's webhook_secret (exposed read-only in the API) AND reject
-        # replayed deliveries by checking the timestamp's freshness.
-        body = json.dumps(_payload(alert), separators=(",", ":")).encode()
-        timestamp = str(int(time.time()))
-        # Delivery is at-least-once: a response lost after the receiver
-        # processed the POST is retried, and the reconciliation sweep may
-        # re-send after a crash. X-QuantAI-Alert-Id is the idempotency key —
-        # receivers must dedupe on it.
-        headers = {"Content-Type": "application/json",
-                   "X-QuantAI-Timestamp": timestamp,
-                   "X-QuantAI-Alert-Id": str(alert.id)}
-        if strategy.webhook_secret:
-            signature = hmac.new(strategy.webhook_secret.encode(),
-                                 f"{timestamp}.".encode() + body,
-                                 hashlib.sha256).hexdigest()
-            headers["X-QuantAI-Signature"] = f"sha256={signature}"
+        body, headers = _signed_webhook(alert, strategy)
         # When configured, all webhook egress goes through a filtering proxy —
         # the only complete answer to validate-then-connect DNS rebinding.
         post_kwargs = {"timeout": 5, "allow_redirects": False}
@@ -168,12 +183,7 @@ def _send_webhook(alert) -> dict:
             post_kwargs["proxies"] = {"http": proxy, "https": proxy}
         resp = requests.post(strategy.webhook_url, data=body, headers=headers,
                              **post_kwargs)
-        if resp.ok:
-            return {"ok": True, "detail": f"HTTP {resp.status_code}"}
-        # 3xx: redirects are deliberately not followed. 4xx (bar 408/429): the
-        # receiver rejected the delivery — retrying the same request is futile.
-        permanent = 300 <= resp.status_code < 500 and resp.status_code not in (408, 429)
-        return {"ok": False, "permanent": permanent, "detail": f"HTTP {resp.status_code}"}
+        return _webhook_outcome(resp)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Webhook delivery failed: %s", exc)
         return {"ok": False, "detail": str(exc)}

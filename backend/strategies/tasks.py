@@ -147,7 +147,145 @@ def _persist_eval(strategy: Strategy, value, now):
     ])
 
 
+def _in_cooldown(strategy, now) -> bool:
+    """True while the strategy's last alert is younger than its cooldown."""
+    return bool(
+        strategy.last_triggered_at
+        and (now - strategy.last_triggered_at) < timedelta(minutes=strategy.cooldown_minutes)
+    )
+
+
+def _evaluate_condition(strategy):
+    """DATA + COMPUTATION: fetch the bars the tree needs and evaluate it.
+
+    Returns ``(provider, series, outcome, value)`` — the provider is handed
+    back so the AI stage can pull headlines from the same source."""
+    tree = strategy.condition_tree()
+    provider = get_provider()
+    series = provider.history(strategy.ticker, days=condition_lookback_days(tree))
+    outcome = evaluate_condition_tree(tree, series.closes)
+    return tree, provider, series, outcome, primary_metric(outcome["detail"])
+
+
+def _contextualise(strategy, provider, summary, value, data_synthetic):
+    """AI stage (or straight-through when disabled). Network I/O — deliberately
+    outside any DB transaction. Returns ``(verdict, data_synthetic)``: the flag
+    widens if the headlines were synthetic even when the prices were real."""
+    if not strategy.ai_enabled:
+        verdict = AlertVerdict(
+            trigger=True,
+            rationale="Quantitative condition met (AI contextualisation disabled).",
+            confidence=1.0,
+            ai_used=False,
+        )
+        return verdict, data_synthetic
+    news = provider.news(strategy.ticker, limit=5)
+    # Synthetic headlines can accompany real prices (or vice versa); the
+    # alert is "on synthetic data" if either source was fabricated.
+    data_synthetic = data_synthetic or any(n.get("source") == "synthetic" for n in news)
+    # Billed against the workspace owner's daily AI budget.
+    verdict = ClaudeClient(user_id=strategy.workspace.owner_id).assess(
+        ticker=strategy.ticker,
+        condition_summary=summary,
+        metric_value=value,
+        user_prompt=strategy.ai_prompt,
+        news=news,
+        data_is_synthetic=data_synthetic,
+    )
+    return verdict, data_synthetic
+
+
+def _fire_alert(strategy_id, *, now, value, detail, verdict, message, data_synthetic):
+    """PERSISTENCE: create the alert AND stamp the trigger in one transaction,
+    so a crash can never leave an alert without its cooldown stamp.
+
+    Re-checks the cooldown under the row lock (belt-and-suspenders on top of
+    the cache lock; exercised for real in tests, which run on PostgreSQL).
+    Returns ``(alert, locked_strategy)``, or ``(None, locked_strategy)`` when
+    the re-check found a fresher alert."""
+    with transaction.atomic():
+        locked = Strategy.objects.select_for_update().get(id=strategy_id)
+        if _in_cooldown(locked, now):
+            _persist_eval(locked, value, now)
+            return None, locked
+        # Snapshot the channels enabled AT FIRE TIME as pending markers:
+        # delivery and reconciliation both work off this snapshot, so a
+        # channel the user enables later is never back-applied to alerts
+        # that predate the change.
+        expected_channels = []
+        if locked.notify_in_app:
+            expected_channels.append("in_app")
+        if locked.notify_email:
+            expected_channels.append("email")
+        if locked.webhook_url:
+            expected_channels.append("webhook")
+        alert = Alert.objects.create(
+            workspace=locked.workspace,
+            strategy=locked,
+            ticker=locked.ticker,
+            indicator=locked.indicator,
+            operator=locked.operator,
+            threshold=locked.threshold,
+            metric_value=value,
+            ai_used=verdict.ai_used,
+            ai_rationale=verdict.rationale,
+            ai_confidence=verdict.confidence if verdict.ai_used else None,
+            message=message,
+            condition_detail=detail,
+            data_synthetic=data_synthetic,
+            delivery={ch: {"pending": True} for ch in expected_channels},
+        )
+        locked.last_triggered_at = now
+        locked.last_metric_value = value
+        locked.last_evaluated_at = now
+        locked.last_error = ""
+        locked.consecutive_failures = 0
+        locked.save(update_fields=[
+            "last_triggered_at", "last_metric_value", "last_evaluated_at",
+            "last_error", "consecutive_failures",
+        ])
+    return alert, locked
+
+
+def _record_failure(strategy, strategy_id: str, exc: Exception, now) -> None:
+    """Failure bookkeeping + the circuit breaker. Best-effort: never raises."""
+    try:
+        limit = int(settings.STRATEGY_MAX_CONSECUTIVE_FAILURES)
+        # Atomic conditional update, never a stale read-modify-write: the
+        # instance loaded at task start is minutes old by now (price fetch
+        # + AI call sit in between), and a user may have paused or
+        # reactivated the strategy since. Only rows still ACTIVE get
+        # failure bookkeeping, so a concurrent re-arm is never reverted.
+        updated = Strategy.objects.filter(
+            pk=strategy_id, status=Strategy.Status.ACTIVE,
+        ).update(
+            consecutive_failures=F("consecutive_failures") + 1,
+            last_evaluated_at=now,
+            last_error=str(exc)[:500],
+        )
+        if not updated:
+            return
+        # Circuit breaker: stop burning fleet capacity on a strategy that
+        # keeps failing. The user re-arms it by setting the status back to
+        # active (which resets the counter).
+        tripped = Strategy.objects.filter(
+            pk=strategy_id, status=Strategy.Status.ACTIVE,
+            consecutive_failures__gte=limit,
+        ).update(status=Strategy.Status.FAILED)
+        if tripped:
+            # A tripped strategy leaves every future sweep — tell the owner,
+            # or "alerts eventually fire" fails silently.
+            strategy.refresh_from_db()
+            notify_strategy_failed(strategy)
+    except Exception:  # noqa: BLE001
+        # The evaluation error is already logged; record (not raise) if even
+        # the failure-save failed.
+        logger.exception("Could not record failure state for strategy %s", strategy_id)
+
+
 def _run_evaluation(strategy_id: str):
+    """The pipeline, stage by stage: evaluate -> cooldown gate -> AI gate ->
+    persist (one transaction) -> deliver (after commit)."""
     try:
         strategy = Strategy.objects.get(id=strategy_id)
     except Strategy.DoesNotExist:
@@ -155,50 +293,20 @@ def _run_evaluation(strategy_id: str):
 
     now = timezone.now()
     try:
-        tree = strategy.condition_tree()
-        provider = get_provider()
-        series = provider.history(strategy.ticker, days=condition_lookback_days(tree))
-        outcome = evaluate_condition_tree(tree, series.closes)
-        detail = outcome["detail"]
-        value = primary_metric(detail)
-        data_synthetic = series.synthetic
-
+        tree, provider, series, outcome, value = _evaluate_condition(strategy)
         if not outcome["result"]:
             _persist_eval(strategy, value, now)
             return {"status": "quant_not_met", "value": value}
 
         # Respect the cooldown so a persistent condition doesn't spam the user.
-        if strategy.last_triggered_at and (now - strategy.last_triggered_at) < timedelta(
-            minutes=strategy.cooldown_minutes
-        ):
+        if _in_cooldown(strategy, now):
             _persist_eval(strategy, value, now)
             return {"status": "cooldown", "value": value}
 
-        # AI contextualisation (or straight-through when disabled). Network I/O —
-        # deliberately outside any DB transaction.
         summary = describe_tree(tree)
-        if strategy.ai_enabled:
-            news = provider.news(strategy.ticker, limit=5)
-            # Synthetic headlines can accompany real prices (or vice versa); the
-            # alert is "on synthetic data" if either source was fabricated.
-            data_synthetic = data_synthetic or any(n.get("source") == "synthetic" for n in news)
-            # Billed against the workspace owner's daily AI budget.
-            verdict = ClaudeClient(user_id=strategy.workspace.owner_id).assess(
-                ticker=strategy.ticker,
-                condition_summary=summary,
-                metric_value=value,
-                user_prompt=strategy.ai_prompt,
-                news=news,
-                data_is_synthetic=data_synthetic,
-            )
-        else:
-            verdict = AlertVerdict(
-                trigger=True,
-                rationale="Quantitative condition met (AI contextualisation disabled).",
-                confidence=1.0,
-                ai_used=False,
-            )
-
+        verdict, data_synthetic = _contextualise(
+            strategy, provider, summary, value, series.synthetic,
+        )
         if not verdict.trigger:
             _persist_eval(strategy, value, now)
             return {"status": "ai_suppressed", "value": value, "rationale": verdict.rationale}
@@ -206,54 +314,12 @@ def _run_evaluation(strategy_id: str):
         value_str = f"{value:.4f}" if value is not None else "n/a"
         prefix = "[SYNTHETIC DATA] " if data_synthetic else ""
         message = f"{prefix}{strategy.ticker}: {summary} (value {value_str}). {verdict.rationale}"
-
-        # S2: create the alert AND stamp the trigger in one transaction, so a crash
-        # can never leave an alert without its cooldown stamp. select_for_update is
-        # belt-and-suspenders on top of the cache lock (and is exercised for real
-        # in tests, which run on PostgreSQL).
-        with transaction.atomic():
-            locked = Strategy.objects.select_for_update().get(id=strategy_id)
-            if locked.last_triggered_at and (now - locked.last_triggered_at) < timedelta(
-                minutes=locked.cooldown_minutes
-            ):
-                _persist_eval(locked, value, now)
-                return {"status": "cooldown", "value": value}
-            # Snapshot the channels enabled AT FIRE TIME as pending markers:
-            # delivery and reconciliation both work off this snapshot, so a
-            # channel the user enables later is never back-applied to alerts
-            # that predate the change.
-            expected_channels = []
-            if locked.notify_in_app:
-                expected_channels.append("in_app")
-            if locked.notify_email:
-                expected_channels.append("email")
-            if locked.webhook_url:
-                expected_channels.append("webhook")
-            alert = Alert.objects.create(
-                workspace=locked.workspace,
-                strategy=locked,
-                ticker=locked.ticker,
-                indicator=locked.indicator,
-                operator=locked.operator,
-                threshold=locked.threshold,
-                metric_value=value,
-                ai_used=verdict.ai_used,
-                ai_rationale=verdict.rationale,
-                ai_confidence=verdict.confidence if verdict.ai_used else None,
-                message=message,
-                condition_detail=detail,
-                data_synthetic=data_synthetic,
-                delivery={ch: {"pending": True} for ch in expected_channels},
-            )
-            locked.last_triggered_at = now
-            locked.last_metric_value = value
-            locked.last_evaluated_at = now
-            locked.last_error = ""
-            locked.consecutive_failures = 0
-            locked.save(update_fields=[
-                "last_triggered_at", "last_metric_value", "last_evaluated_at",
-                "last_error", "consecutive_failures",
-            ])
+        alert, locked = _fire_alert(
+            strategy_id, now=now, value=value, detail=outcome["detail"],
+            verdict=verdict, message=message, data_synthetic=data_synthetic,
+        )
+        if alert is None:
+            return {"status": "cooldown", "value": value}
 
         # Deliver AFTER commit — network I/O must not hold a DB lock/transaction open.
         deliver_alert(alert, locked)
@@ -261,37 +327,7 @@ def _run_evaluation(strategy_id: str):
 
     except Exception as exc:  # noqa: BLE001
         logger.exception("Strategy %s evaluation failed", strategy_id)
-        try:
-            limit = int(settings.STRATEGY_MAX_CONSECUTIVE_FAILURES)
-            # Atomic conditional update, never a stale read-modify-write: the
-            # instance loaded at task start is minutes old by now (price fetch
-            # + AI call sit in between), and a user may have paused or
-            # reactivated the strategy since. Only rows still ACTIVE get
-            # failure bookkeeping, so a concurrent re-arm is never reverted.
-            updated = Strategy.objects.filter(
-                pk=strategy_id, status=Strategy.Status.ACTIVE,
-            ).update(
-                consecutive_failures=F("consecutive_failures") + 1,
-                last_evaluated_at=now,
-                last_error=str(exc)[:500],
-            )
-            if updated:
-                # Circuit breaker: stop burning fleet capacity on a strategy
-                # that keeps failing. The user re-arms it by setting the
-                # status back to active (which resets the counter).
-                tripped = Strategy.objects.filter(
-                    pk=strategy_id, status=Strategy.Status.ACTIVE,
-                    consecutive_failures__gte=limit,
-                ).update(status=Strategy.Status.FAILED)
-                if tripped:
-                    # A tripped strategy leaves every future sweep — tell the
-                    # owner, or "alerts eventually fire" fails silently.
-                    strategy.refresh_from_db()
-                    notify_strategy_failed(strategy)
-        except Exception:  # noqa: BLE001
-            # Best-effort bookkeeping: the evaluation error above is already
-            # logged; record (not raise) if even the failure-save failed.
-            logger.exception("Could not record failure state for strategy %s", strategy_id)
+        _record_failure(strategy, strategy_id, exc, now)
         return {"status": "error", "error": str(exc)}
 
 

@@ -80,38 +80,44 @@ def _find_root(condition_ids, ai_id, edges, node_map):
     )
 
 
-def compile_graph(nodes: list, edges: list) -> dict:
+def _partition(nodes: list) -> dict:
+    """Group nodes by type and enforce the required kinds. Returns
+    ``{ticker, compares, logics, ais, node_map}``."""
     if not nodes:
         raise GraphCompilationError("Graph is empty.")
-
-    node_map = {n.get("id"): n for n in nodes}
-
-    def of_type(t):
-        return [n for n in nodes if n.get("type") == t]
-
-    assets = of_type("asset")
+    by_type = {}
+    for node in nodes:
+        by_type.setdefault(node.get("type"), []).append(node)
+    assets = by_type.get("asset", [])
     if not assets:
         raise GraphCompilationError("Graph must contain an Asset node.")
     ticker = (assets[0].get("data") or {}).get("ticker")
     if not ticker:
         raise GraphCompilationError("Asset node is missing a ticker.")
-
-    compares = of_type("quant")
-    logics = of_type("logic")
-    ais = of_type("ai")
+    compares = by_type.get("quant", [])
     if not compares:
         raise GraphCompilationError("Strategy must contain at least one Quant node.")
+    return {
+        "ticker": ticker,
+        "compares": compares,
+        "logics": by_type.get("logic", []),
+        "ais": by_type.get("ai", []),
+        "node_map": {n.get("id"): n for n in nodes},
+    }
 
-    # With the required node kinds present, reject edges to unknown nodes.
+
+def _check_edges(edges: list, node_map: dict) -> None:
+    """Reject edges to unknown nodes (once the required node kinds are present)."""
     for edge in edges:
         for endpoint in ("source", "target"):
             ref = edge.get(endpoint)
             if ref is not None and ref not in node_map:
                 raise GraphCompilationError(f"Edge points to unknown node {ref!r}.")
 
-    condition_ids = {n["id"] for n in compares + logics}
-    ai_id = ais[0]["id"] if ais else None
 
+def _compile_tree(root: dict, condition_ids: set, edges: list, node_map: dict):
+    """Compile the condition tree rooted at ``root``. Returns ``(tree, visited)``
+    so the caller can detect condition nodes the walk never reached."""
     def children_of(parent_id):
         return [
             node_map[edge["source"]]
@@ -138,8 +144,20 @@ def compile_graph(nodes: list, edges: list) -> dict:
                     "children": [compile_node(k, seen) for k in kids]}
         return _compile_compare(node)
 
+    return compile_node(root, set()), visited
+
+
+def compile_graph(nodes: list, edges: list) -> dict:
+    parts = _partition(nodes)
+    node_map = parts["node_map"]
+    _check_edges(edges, node_map)
+
+    condition_ids = {n["id"] for n in parts["compares"] + parts["logics"]}
+    ais = parts["ais"]
+    ai_id = ais[0]["id"] if ais else None
+
     root = _find_root(condition_ids, ai_id, edges, node_map)
-    tree = compile_node(root, set())
+    tree, visited = _compile_tree(root, condition_ids, edges, node_map)
 
     # Every condition node must be reachable from the root: a quant/logic node
     # left unwired would otherwise be dropped silently, and the user would
@@ -156,7 +174,7 @@ def compile_graph(nodes: list, edges: list) -> dict:
 
     rep = representative_fields(tree)
     return {
-        "ticker": ticker,
+        "ticker": parts["ticker"],
         "condition": tree,
         "ai_enabled": bool(ais),
         "ai_prompt": ((ais[0].get("data") or {}).get("prompt", "") if ais else "") or "",
