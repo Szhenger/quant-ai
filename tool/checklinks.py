@@ -3,9 +3,11 @@
 
 The docs promise "every claim points at code; if the link breaks, the doc is
 wrong". This is the check that keeps that promise honest: it walks every
-tracked ``*.md`` file, collects ``[text](target)`` and ``<target>`` links that
-are relative paths (not http(s), mailto, or a bare ``#anchor``), resolves each
-against the file's own directory, and fails if the target does not exist.
+tracked ``*.md`` file, collects the ``[text](target)`` links that are relative
+paths (not http(s), mailto, or a bare ``#anchor``), resolves each against the
+file's own directory, and fails if the target does not exist. Fenced code
+blocks and inline code spans are skipped: a link *shown as an example* is not
+a link.
 
     tool/checklinks.py            # whole repo (files from `git ls-files`)
     tool/checklinks.py docs/*.md  # just these files
@@ -34,8 +36,17 @@ def markdown_files(argv):
     return sorted({(REPO / line).resolve() for line in out.splitlines() if line})
 
 
+_FENCE = re.compile(r"^\s*(```|~~~)")
+
+
 def links_in(text):
+    in_fence = False
     for line_no, line in enumerate(text.splitlines(), start=1):
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
         for match in _LINK.finditer(_INLINE_CODE.sub("", line)):
             yield line_no, match.group(1)
 

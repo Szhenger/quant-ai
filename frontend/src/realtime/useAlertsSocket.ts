@@ -116,6 +116,9 @@ export function useAlertsSocket(): void {
           void qc.invalidateQueries({ queryKey: keys.unread(workspaceId) });
           void qc.invalidateQueries({ queryKey: keys.strategies(workspaceId) });
           void qc.invalidateQueries({ queryKey: keys.stockPages(workspaceId) });
+          void qc.invalidateQueries({ queryKey: keys.stockHistories(workspaceId) });
+          void qc.invalidateQueries({ queryKey: keys.watchlist(workspaceId) });
+          void qc.invalidateQueries({ queryKey: keys.limits(workspaceId) });
         }
         if (s === "open") hadOpened = true;
         useRealtimeStore.getState().setStatus(s);

@@ -21,5 +21,7 @@ export const keys = {
   // Prefix key: invalidating it refetches every open stock page at once.
   stockPages: (ws: string) => [ws, "stock-page"] as const,
   stockPage: (ws: string, id: string) => [ws, "stock-page", id] as const,
+  // Prefix key for the continuity trails, same reason as stockPages.
+  stockHistories: (ws: string) => [ws, "stock-history"] as const,
   stockHistory: (ws: string, id: string) => [ws, "stock-history", id] as const,
 };
