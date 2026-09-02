@@ -8,18 +8,31 @@ from rest_framework.test import APIClient
 from identity.models import Workspace
 
 # --------------------------------------------------------------------------- #
-# Focus-area markers, applied by directory (registered in backend/pytest.ini).
-# A test under test/backend/rest/ is automatically `-m rest`, and so on; the
-# qtest runner builds its suites from these markers.
+# Focus-area markers (registered in backend/pytest.ini), applied automatically.
+#
+# The tree is organized by FEATURE (identity, markets, watchlist, strategies —
+# one directory per backend app), plus two cross-feature directories:
+# ``system/`` for the invariants that span every app (REST sweep, Celery/Redis
+# semantics, storage, the web stack, the event bus) and ``journeys/`` for whole
+# user sessions. Markers name the BEHAVIOR AREA a test proves, which is what the
+# qtest runner selects on — so a feature directory maps to one marker, and each
+# file under system/ names its own.
 # --------------------------------------------------------------------------- #
 _DIR_MARKERS = {
-    "rest": "rest",
-    "system": "rest",
-    "storage": "postgres",
-    "tasking": "celery_redis",
-    "engine": "celery_redis",
+    "identity": "rest",
+    "markets": "indicators",
+    "watchlist": "celery_redis",
+    "strategies": "celery_redis",
     "journeys": "journeys",
-    "feeder": "indicators",
+}
+_SYSTEM_FILE_MARKERS = {
+    "test_api.py": "rest",
+    "test_contracts.py": "rest",
+    "test_rest_components.py": "rest",
+    "test_webstack.py": "rest",
+    "test_celery_redis.py": "celery_redis",
+    "test_events.py": "celery_redis",
+    "test_postgres.py": "postgres",
 }
 
 
@@ -27,10 +40,11 @@ def pytest_collection_modifyitems(items):
     here = Path(__file__).parent
     for item in items:
         try:
-            top = Path(str(item.fspath)).resolve().relative_to(here.resolve()).parts[0]
+            parts = Path(str(item.fspath)).resolve().relative_to(here.resolve()).parts
         except ValueError:
             continue
-        marker = _DIR_MARKERS.get(top)
+        top = parts[0]
+        marker = _SYSTEM_FILE_MARKERS.get(parts[-1]) if top == "system" else _DIR_MARKERS.get(top)
         if marker:
             item.add_marker(getattr(pytest.mark, marker))
 

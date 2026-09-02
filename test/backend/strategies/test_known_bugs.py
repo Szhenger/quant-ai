@@ -12,7 +12,6 @@ import pytest
 from strategies import tasks
 from strategies.compiler import GraphCompilationError, compile_graph
 from strategies.models import Strategy
-from markets.indicators import compute_indicator
 
 pytestmark = pytest.mark.django_db
 
@@ -84,21 +83,6 @@ def test_graph_compiler_rejects_conditions_left_out_of_the_tree():
     ]
     with pytest.raises(GraphCompilationError, match="orphan"):
         compile_graph(nodes, edges)
-
-
-# AUDIT-B7: the MACD histogram used to unmask values before its own
-# n >= slow+signal warm-up standard.
-def test_macd_histogram_masks_the_full_warmup_region():
-    fast, slow, signal = 12, 26, 9
-    closes = [100.0 + (i % 7) for i in range(40)]
-    series = compute_indicator(
-        "MACD_HIST", closes, {"fast": fast, "slow": slow, "signal": signal}
-    )["series"]
-    warmup = series[: slow + signal - 1]
-    assert all(v is None for v in warmup), (
-        "histogram values exposed while the signal-line EMA is still warming up"
-    )
-    assert series[slow + signal - 1] is not None  # and no over-masking
 
 
 # AUDIT-B4: PATCHing a flat field on a composite strategy used to return 200

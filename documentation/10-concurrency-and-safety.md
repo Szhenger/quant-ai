@@ -213,7 +213,7 @@ Pull any one and a duplicate (or a wedged strategy, or an orphaned alert) creeps
 
 ## 10.7 In the code — the regression test
 
-Concurrency bugs are famously hard to test — you can't reliably make two threads collide on cue. The trick the suite uses is to **simulate the collision**: seize the shared resource yourself, then prove the code no-ops instead of double-firing. From [`test/backend/engine/test_evaluation.py`](../test/backend/engine/test_evaluation.py):
+Concurrency bugs are famously hard to test — you can't reliably make two threads collide on cue. The trick the suite uses is to **simulate the collision**: seize the shared resource yourself, then prove the code no-ops instead of double-firing. From [`test/backend/strategies/test_evaluation.py`](../test/backend/strategies/test_evaluation.py):
 
 ```python
 def test_lock_prevents_concurrent_evaluation(workspace):

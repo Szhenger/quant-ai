@@ -237,3 +237,19 @@ def test_missing_values_never_fire():
 def test_unknown_operator_is_rejected():
     with pytest.raises(ValueError, match="Unknown operator"):
         evaluate_condition("==", 1.0, 1.0, 1.0)
+
+
+# --- Audit regressions (2026-08) -------------------------------------------
+# AUDIT-B7: the MACD histogram used to unmask values before its own
+# n >= slow+signal warm-up standard.
+def test_macd_histogram_masks_the_full_warmup_region():
+    fast, slow, signal = 12, 26, 9
+    closes = [100.0 + (i % 7) for i in range(40)]
+    series = compute_indicator(
+        "MACD_HIST", closes, {"fast": fast, "slow": slow, "signal": signal}
+    )["series"]
+    warmup = series[: slow + signal - 1]
+    assert all(v is None for v in warmup), (
+        "histogram values exposed while the signal-line EMA is still warming up"
+    )
+    assert series[slow + signal - 1] is not None  # and no over-masking

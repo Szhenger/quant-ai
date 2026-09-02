@@ -113,11 +113,11 @@ cd backend && pytest      # pytest-django creates/destroys test_quantai around t
 docker compose -f runtime/docker-compose.test.yml run --rm --build test
 ```
 
-The tests double as a guided tour of the engine: `test_indicators.py` checks the
-Chapter 1–6 math, `test_evaluation.py` and `test_compiler.py` exercise the strategy pipeline,
-`test_api.py` walks the Chapter 9 contract end to end, and `test_webstack.py` covers the
-web tier's performance/concurrency behavior (single-flight caching, ETags, cursor pages,
-the WebSocket heartbeat).
+The tests double as a guided tour of the engine, one directory per app: `markets/test_indicators.py`
+checks the Chapter 1–6 math, `strategies/test_evaluation.py` and `test_compiler.py` exercise
+the strategy pipeline, `system/test_api.py` walks the Chapter 9 contract end to end, and
+`system/test_webstack.py` covers the web tier's performance/concurrency behavior (single-flight
+caching, ETags, cursor pages, the WebSocket heartbeat).
 
 ## The UX-invariant framework (`test/backend/journeys/`)
 
