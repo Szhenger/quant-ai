@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { keys, useWorkspaceId } from "../api/hooks";
-import type { Alert } from "../api/types";
+import { keys } from "../../api/keys";
+import { useWorkspaceId } from "../../session/auth";
+import type { Alert } from "../../contract/types";
 
 /**
  * "Why did this fire, and where did it go?" — renders the alert's persisted

@@ -1,9 +1,9 @@
 /**
- * Client-side realtime state, kept apart from the socket wiring so hooks in
- * api/ can read it without an import cycle (useAlertsSocket imports api/hooks).
+ * Client-side realtime state, kept apart from the socket wiring so feature
+ * hooks can read "is the socket live?" without depending on the socket itself.
  */
 import { create } from "zustand";
-import type { EvaluateResult } from "../api/types";
+import type { EvaluateResult } from "../contract/types";
 import type { SocketStatus } from "./socket";
 
 export interface RealtimeState {

@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
-import { extractError } from "../api/errors";
-import { useCreateStrategy, useIndicatorCatalog } from "../api/hooks";
-import type { Indicator } from "../api/types";
+import { extractError } from "../../api/errors";
+import { useCreateStrategy } from "./hooks";
+import { useIndicatorCatalog } from "../../api/catalog";
+import type { Indicator } from "../../contract/types";
 import CostEstimate, { useAtStrategyCap } from "./CostEstimate";
 import {
   DEFAULT_DELIVERY,

@@ -24,7 +24,7 @@ import type {
   ReplayFire,
   ReplayResult,
   Strategy,
-} from "../../../frontend/src/api/types";
+} from "../../../frontend/src/contract/types";
 
 const FIXTURE_DIR = new URL("../../backend/journeys/fixtures/", import.meta.url);
 

@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { useAuthStore } from "../store/auth";
+import { useAuthStore } from "./auth";
 import { extractError } from "../api/errors";
 
 type Mode = "login" | "register";

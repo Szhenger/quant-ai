@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
-import { extractError } from "../api/errors";
-import { useReplay } from "../api/hooks";
+import { extractError } from "../../api/errors";
+import { useReplay } from "./hooks";
 import ReplayChart from "./ReplayChart";
 
 const DAY_CHOICES = [90, 180, 365, 730, 1000];

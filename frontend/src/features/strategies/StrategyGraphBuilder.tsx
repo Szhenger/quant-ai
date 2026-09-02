@@ -20,9 +20,10 @@ import type {
   NodeTypes,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { extractError } from "../api/errors";
-import { useDeployGraph, useIndicatorCatalog } from "../api/hooks";
-import type { IndicatorCatalog } from "../api/types";
+import { extractError } from "../../api/errors";
+import { useDeployGraph } from "./hooks";
+import { useIndicatorCatalog } from "../../api/catalog";
+import type { IndicatorCatalog } from "../../contract/types";
 import CostEstimate, { useAtStrategyCap } from "./CostEstimate";
 import {
   DEFAULT_DELIVERY,

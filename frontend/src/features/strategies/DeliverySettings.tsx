@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Strategy, StrategyDelivery } from "../api/types";
+import type { Strategy, StrategyDelivery } from "../../contract/types";
 
 /**
  * The delivery + scheduling knobs every strategy carries — poll interval,

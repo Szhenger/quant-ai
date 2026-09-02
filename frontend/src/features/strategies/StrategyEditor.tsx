@@ -1,8 +1,8 @@
 import { FormEvent, useState } from "react";
-import api from "../api/client";
-import { extractError } from "../api/errors";
-import { useRotateWebhookSecret, useUpdateStrategy } from "../api/hooks";
-import type { Strategy } from "../api/types";
+import api from "../../api/client";
+import { extractError } from "../../api/errors";
+import { useRotateWebhookSecret, useUpdateStrategy } from "./hooks";
+import type { Strategy } from "../../contract/types";
 import CostEstimate from "./CostEstimate";
 import {
   DeliveryChecks,

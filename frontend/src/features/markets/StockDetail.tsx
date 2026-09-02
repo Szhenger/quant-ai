@@ -1,14 +1,9 @@
 import { FormEvent, useEffect, useState } from "react";
-import { extractError } from "../api/errors";
-import {
-  useIndicatorCatalog,
-  useStockPage,
-  useStockHistory,
-  useRefreshStockPage,
-  useUpdateWatch,
-} from "../api/hooks";
-import { readIndicator } from "../api/readings";
-import type { WatchedTicker } from "../api/types";
+import { extractError } from "../../api/errors";
+import { useIndicatorCatalog } from "../../api/catalog";
+import { useStockPage, useStockHistory, useRefreshStockPage, useUpdateWatch } from "./hooks";
+import { readIndicator } from "../../contract/readings";
+import type { WatchedTicker } from "../../contract/types";
 import LineChart from "./LineChart";
 
 function num(v: number | null | undefined, digits = 2): string {

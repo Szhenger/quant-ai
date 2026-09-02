@@ -11,13 +11,13 @@
  */
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useAuthStore } from "../store/auth";
-import { WS_BASE } from "../api/client";
-import { keys } from "../api/hooks";
+import { useAuthStore } from "../session/auth";
+import { WS_BASE } from "../config";
+import { keys } from "../api/keys";
 import { ReconnectingAlertSocket } from "./socket";
 import { useRealtimeStore } from "./store";
 import { prependAlert, AlertPages } from "./merge";
-import type { Alert, EvaluateResult, UnreadCount, WorkspaceEvent } from "../api/types";
+import type { Alert, EvaluateResult, UnreadCount, WorkspaceEvent } from "../contract/types";
 
 export function useAlertsSocket(): void {
   const workspaceId = useAuthStore((s) => s.workspaceId);

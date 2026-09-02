@@ -30,7 +30,7 @@ test/
 │   ├── journeys/          #   whole user sessions + the golden fixtures
 │   └── regressions/       #   known bugs pinned as xfail (see below)
 └── frontend/              # the vitest suite (pure logic + contract pins)
-    ├── api/               #   cursor math, the frontend contract pin
+    ├── contract/          #   the contract mirrors: types pin, cursor, readings, cost estimate
     └── realtime/          #   backoff, cache merges, realtime journeys
 ```
 
@@ -110,7 +110,7 @@ goes stale:
 
 1. **The contract dual pin.** `backend/journeys/fixtures/*.json` is the single
    source of truth for wire shapes. `test_contract_fixtures.py` proves the
-   *live API* produces exactly those shapes; `frontend/api/contracts.test.ts`
+   *live API* produces exactly those shapes; `frontend/contract/contracts.test.ts`
    proves `types.ts` matches the *same files* — at compile time, via
    exhaustive key maps. Changing a serializer fails the backend pin → you
    update the fixture → the frontend stops compiling until `types.ts` moves in

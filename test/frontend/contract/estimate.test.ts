@@ -3,7 +3,7 @@
  * numbers here are the same ones test_limits.py pins on the backend.
  */
 import { describe, expect, it } from "vitest";
-import { estimateStrategyCost } from "../../../frontend/src/api/estimate";
+import { estimateStrategyCost } from "../../../frontend/src/contract/estimate";
 
 describe("estimateStrategyCost", () => {
   it("matches the backend bounds", () => {

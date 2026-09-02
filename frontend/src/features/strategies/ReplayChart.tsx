@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { ReplayFire } from "../api/types";
+import type { ReplayFire } from "../../contract/types";
 
 interface ReplayChartProps {
   closes: number[];

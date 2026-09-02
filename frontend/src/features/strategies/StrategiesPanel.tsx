@@ -1,17 +1,11 @@
 import { Fragment, Suspense, lazy, useEffect, useState } from "react";
-import { extractError } from "../api/errors";
-import {
-  useDeleteStrategy,
-  useEvaluateStrategy,
-  useLimits,
-  useStrategies,
-  useUpdateStrategy,
-} from "../api/hooks";
-import { useRealtimeStore } from "../realtime/store";
+import { extractError } from "../../api/errors";
+import { useDeleteStrategy, useEvaluateStrategy, useLimits, useStrategies, useUpdateStrategy } from "./hooks";
+import { useRealtimeStore } from "../../realtime/store";
 import StrategyForm from "./StrategyForm";
 import StrategyEditor from "./StrategyEditor";
 import ReplayPanel from "./ReplayPanel";
-import type { EvaluateResult } from "../api/types";
+import type { EvaluateResult } from "../../contract/types";
 
 // The graph builder pulls in reactflow (~the largest thing in the bundle);
 // load it only when someone actually opens the graph tab.

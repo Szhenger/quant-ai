@@ -122,7 +122,7 @@ from silently losing behavior users rely on:
   intentionally changes one of these promises must change the assertion in the same commit.
 - **`test_contract_fixtures.py` + `fixtures/*.json`** — golden wire-shape samples shared
   with the frontend. This side proves the live API matches them key-for-key;
-  `frontend/src/api/contracts.test.ts` proves `types.ts` matches the *same files* at compile
+  `test/frontend/contract/contracts.test.ts` proves `types.ts` matches the *same files* at compile
   time. Changing a serializer therefore fails here → you update the fixture → the frontend
   stops compiling until `types.ts` and its key map are updated too. The contract cannot
   drift on one side only.

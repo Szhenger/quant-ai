@@ -4,8 +4,8 @@
  * (ordered, first-match, catch-all last, warm-up text) are pinned here.
  */
 import { describe, expect, it } from "vitest";
-import { NO_HISTORY_READING, readIndicator } from "../../../frontend/src/api/readings";
-import type { Indicator } from "../../../frontend/src/api/types";
+import { NO_HISTORY_READING, readIndicator } from "../../../frontend/src/contract/readings";
+import type { Indicator } from "../../../frontend/src/contract/types";
 
 const rsi: Indicator = {
   key: "RSI",

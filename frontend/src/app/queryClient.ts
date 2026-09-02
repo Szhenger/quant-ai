@@ -6,7 +6,7 @@ import { QueryClient } from "@tanstack/react-query";
  * AbortSignal is threaded through to axios), serves cached data instantly
  * while revalidating in the background, and retries transient failures.
  *
- * Query keys are prefixed with the workspace id (see api/hooks.ts), so
+ * Query keys are prefixed with the workspace id (see api/keys.ts), so
  * switching workspace switches to a separate cache namespace instead of
  * showing another tenant's data while refetching.
  */

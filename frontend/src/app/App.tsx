@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { bootstrapAccess } from "./api/client";
-import { useAuthStore } from "./store/auth";
-import { useUnreadCount } from "./api/hooks";
-import { useAlertsSocket } from "./realtime/useAlertsSocket";
-import LoginPage from "./pages/LoginPage";
-import MarketsPanel from "./components/MarketsPanel";
-import StrategiesPanel from "./components/StrategiesPanel";
-import AlertsPanel from "./components/AlertsPanel";
+import { bootstrapAccess } from "../api/client";
+import { useAuthStore } from "../session/auth";
+import { useUnreadCount } from "../features/alerts/hooks";
+import { useAlertsSocket } from "../realtime/useAlertsSocket";
+import LoginPage from "../session/LoginPage";
+import MarketsPanel from "../features/markets/MarketsPanel";
+import StrategiesPanel from "../features/strategies/StrategiesPanel";
+import AlertsPanel from "../features/alerts/AlertsPanel";
 
 type Tab = "markets" | "strategies" | "alerts";
 

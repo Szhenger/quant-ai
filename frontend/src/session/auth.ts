@@ -1,9 +1,10 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import axios from "axios";
-import api, { API_BASE } from "../api/client";
-import { queryClient } from "../queryClient";
-import type { AuthTokens, Paginated, Workspace } from "../api/types";
+import api, { bindSession } from "../api/client";
+import { API_BASE } from "../config";
+import { queryClient } from "../app/queryClient";
+import type { AuthTokens, Paginated, Workspace } from "../contract/types";
 
 interface AuthState {
   access: string | null;
@@ -112,4 +113,19 @@ if (typeof window !== "undefined") {
       void useAuthStore.persist.rehydrate();
     }
   });
+}
+
+// The transport reads the session through this bridge (never by importing
+// the store), so api/ has no dependency on session/ and no import cycle.
+bindSession({
+  getAccess: () => useAuthStore.getState().access,
+  getRefresh: () => useAuthStore.getState().refresh,
+  getWorkspaceId: () => useAuthStore.getState().workspaceId,
+  setTokens: (access, refresh) => useAuthStore.getState().setTokens(access, refresh),
+  endSession: () => useAuthStore.getState().logout(),
+});
+
+/** The active workspace id for query keys ("none" while no workspace is selected). */
+export function useWorkspaceId(): string {
+  return useAuthStore((s) => s.workspaceId) ?? "none";
 }

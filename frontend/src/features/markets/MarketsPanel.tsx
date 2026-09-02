@@ -1,14 +1,8 @@
 import { FormEvent, useState } from "react";
-import { extractError } from "../api/errors";
-import {
-  useAddWatch,
-  useAnalysis,
-  useIndicatorCatalog,
-  usePrefetchAnalysis,
-  useRemoveWatch,
-  useWatchlist,
-} from "../api/hooks";
-import { readIndicator } from "../api/readings";
+import { extractError } from "../../api/errors";
+import { useAddWatch, useAnalysis, usePrefetchAnalysis, useRemoveWatch, useWatchlist } from "./hooks";
+import { useIndicatorCatalog } from "../../api/catalog";
+import { readIndicator } from "../../contract/readings";
 import LineChart from "./LineChart";
 import StockDetail from "./StockDetail";
 
