@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from identity.models import Workspace
-from engine.models import Strategy
+from strategies.models import Strategy
 
 pytestmark = pytest.mark.django_db
 
@@ -337,7 +337,7 @@ def test_deploy_graph_accepts_delivery_and_scheduling(auth_client, workspace):
 
 
 def test_mark_all_read(auth_client, workspace):
-    from engine.models import Alert
+    from strategies.models import Alert
     for i in range(3):
         Alert.objects.create(workspace=workspace, ticker="AAPL", indicator="PRICE",
                              operator=">", threshold=0.0, metric_value=1.0)

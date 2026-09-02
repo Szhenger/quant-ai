@@ -209,7 +209,7 @@ Sec-WebSocket-Protocol: quantai.v1, quantai.token.<access-token>
 
 (A JWT is unpadded base64url plus dots — all legal subprotocol characters.) A small
 middleware plucks the token out before the connection is accepted, in
-`backend/engine/ws_auth.py`, and the consumer completes the handshake by selecting
+`backend/strategies/ws_auth.py`, and the consumer completes the handshake by selecting
 `quantai.v1` — a server must echo one of the *offered* subprotocols or the browser drops
 the connection, which is why the token rides as a second, never-selected entry:
 
@@ -242,7 +242,7 @@ Same JWT, same signature check (`AccessToken(token)` validates it) — just arri
 
 ### The ownership check, again
 
-Authentication got us a user on the connection. Now the *same* authorization question from §9.4 returns — is this workspace actually yours? — enforced in `AlertConsumer.connect()`, in `backend/engine/consumers.py`:
+Authentication got us a user on the connection. Now the *same* authorization question from §9.4 returns — is this workspace actually yours? — enforced in `AlertConsumer.connect()`, in `backend/strategies/consumers.py`:
 
 ```python
 async def connect(self):
@@ -350,9 +350,9 @@ No polling. The server spoke first, because by now it could — you'd left the l
 
 The map, so you can read the real thing:
 
-- **Routes** — `backend/config/urls.py` (the base-path table above), `backend/identity/urls.py` (a DRF router for `workspaces` and `watchlist`), `backend/engine/urls.py` (a router for `strategies` and `alerts`, plus explicit `indicators/` and `markets/<ticker>/analysis/` paths).
+- **Routes** — `backend/config/urls.py` (the base-path table above) includes one `urls.py` per feature app: `identity` (`workspaces`, `limits/`), `watchlist` (`watchlist` and its `page/`, `refresh/`, `history/` actions), `markets` (`indicators/`, `markets/<ticker>/analysis/`) and `strategies` (`strategies`, `alerts`).
 - **Authorization choke point** — `resolve_active_workspace` in `backend/identity/workspaces.py`. Every scoped view calls it; it is the single line where tenancy is enforced over HTTP.
-- **WebSocket auth** — `JWTAuthMiddleware` in `backend/engine/ws_auth.py` (token from the `Sec-WebSocket-Protocol` subprotocol list, never the URL), and the `4001/4003` ownership check in `AlertConsumer.connect()` in `backend/engine/consumers.py`. The socket is routed in `backend/engine/routing.py` and mounted in `backend/config/asgi.py`, where HTTP and WebSocket protocols split.
+- **WebSocket auth** — `JWTAuthMiddleware` in `backend/strategies/ws_auth.py` (token from the `Sec-WebSocket-Protocol` subprotocol list, never the URL), and the `4001/4003` ownership check in `AlertConsumer.connect()` in `backend/strategies/consumers.py`. The socket is routed in `backend/strategies/routing.py` and mounted in `backend/config/asgi.py`, where HTTP and WebSocket protocols split.
 - **Token policy** — the `SIMPLE_JWT` block in `backend/config/settings.py` (lifetimes, rotation, blacklist).
 
 ## 9.10 Worked example: read the contract like a lawyer

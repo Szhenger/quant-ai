@@ -1,6 +1,6 @@
 import pytest
 
-from engine.compiler import compile_graph, GraphCompilationError
+from strategies.compiler import compile_graph, GraphCompilationError
 
 
 def _graph():

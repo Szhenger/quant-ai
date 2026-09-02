@@ -1,6 +1,6 @@
 """Provider honesty: a degraded synthetic fallback is never disguised as real data."""
-from feeder import analyze_market
-from feeder.providers import (
+from markets import analyze_market
+from markets.providers import (
     BaseProvider,
     PriceSeries,
     ProviderError,

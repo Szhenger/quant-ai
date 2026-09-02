@@ -8,10 +8,10 @@ import pytest
 from django.test import override_settings
 from django.utils import timezone
 
-from feeder import NO_HISTORY_READING, INDICATOR_SPECS, read_indicator, summary_indicators
-from feeder.stockpage import build_quantitative, build_qualitative, _within_week
-from identity.models import WatchedTicker, StockPage, QuantSnapshot
-from engine.tasks import (
+from markets import NO_HISTORY_READING, INDICATOR_SPECS, read_indicator, summary_indicators
+from watchlist.stockpage import build_quantitative, build_qualitative, _within_week
+from watchlist.models import WatchedTicker, StockPage, QuantSnapshot
+from watchlist.tasks import (
     compile_stock_quantitative,
     compile_stock_qualitative,
     refresh_stock_pages,
@@ -113,8 +113,8 @@ def test_page_action_never_compiles_inline_and_debounces(auth_client, workspace)
     # compile inline (no provider fetch / paid Claude call in the request) — it
     # enqueues the compile and answers 202.
     wt = _watch(workspace, ticker="ZZZZ")
-    with patch("engine.tasks.compile_stock_quantitative.delay") as q, \
-         patch("engine.tasks.compile_stock_qualitative.delay") as ql:
+    with patch("watchlist.tasks.compile_stock_quantitative.delay") as q, \
+         patch("watchlist.tasks.compile_stock_qualitative.delay") as ql:
         r1 = auth_client.get(f"/api/v1/watchlist/{wt.id}/page/")
         assert r1.status_code == 202
         assert r1.data["status"] == "computing"
@@ -128,8 +128,8 @@ def test_page_action_never_compiles_inline_and_debounces(auth_client, workspace)
 
 def test_refresh_is_async_and_returns_202(auth_client, workspace):
     wid = auth_client.post("/api/v1/watchlist/", {"ticker": "AAPL"}, format="json").data["id"]
-    with patch("engine.tasks.compile_stock_quantitative.delay") as q, \
-         patch("engine.tasks.compile_stock_qualitative.delay") as ql:
+    with patch("watchlist.tasks.compile_stock_quantitative.delay") as q, \
+         patch("watchlist.tasks.compile_stock_qualitative.delay") as ql:
         r = auth_client.post(f"/api/v1/watchlist/{wid}/refresh/")
         assert r.status_code == 202
         assert r.data["status"] == "refreshing"
@@ -142,8 +142,8 @@ def test_page_reports_refreshing_until_the_recompile_lands(auth_client, workspac
     # The eager compile at POST time cleared both warm markers: nothing in flight.
     assert auth_client.get(f"/api/v1/watchlist/{wid}/page/").data["refreshing"] is False
 
-    with patch("engine.tasks.compile_stock_quantitative.delay"), \
-         patch("engine.tasks.compile_stock_qualitative.delay"):
+    with patch("watchlist.tasks.compile_stock_quantitative.delay"), \
+         patch("watchlist.tasks.compile_stock_qualitative.delay"):
         auth_client.post(f"/api/v1/watchlist/{wid}/refresh/")
         # The last compiled page is still served (200, timestamps intact) but
         # flagged, so the client keeps polling instead of silently showing

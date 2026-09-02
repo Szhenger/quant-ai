@@ -19,8 +19,8 @@ from django.core.mail import send_mail
 from django.db import transaction
 from rest_framework.renderers import JSONRenderer
 
-from identity.validators import UnresolvableWebhookHostError, ensure_public_webhook_url
-from .events import send as send_to_workspace
+from common.validators import UnresolvableWebhookHostError, ensure_public_webhook_url
+from common.events import send as send_to_workspace
 from .serializers import AlertSerializer
 
 logger = logging.getLogger(__name__)

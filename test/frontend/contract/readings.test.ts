@@ -1,5 +1,5 @@
 /**
- * readIndicator mirrors feeder.indicators.read_indicator: the analysis table
+ * readIndicator mirrors markets.indicators.read_indicator: the analysis table
  * and the stock page must word a value identically, so the band semantics
  * (ordered, first-match, catch-all last, warm-up text) are pinned here.
  */

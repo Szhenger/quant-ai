@@ -3,7 +3,7 @@ import type { CostEstimate } from "./types";
 const MINUTES_PER_DAY = 24 * 60;
 
 /**
- * Mirror of engine.limits.estimate_strategy_cost, so the builders can show
+ * Mirror of identity.limits.estimate_strategy_cost, so the builders can show
  * the cost of a strategy as the user types, before anything is deployed.
  * The server recomputes it on save and echoes it as `cost_estimate`; the two
  * are pinned to the same numbers in tests.

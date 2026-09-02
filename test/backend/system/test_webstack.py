@@ -11,11 +11,12 @@ import pytest
 from asgiref.sync import async_to_sync
 from django.core.cache import cache
 
-import engine.views as views_mod
-from identity.caching import cached_compute, stable_key
+import markets.views as market_views
+import strategies.views as strategy_views
+from common.caching import cached_compute, stable_key
 from identity.models import Workspace
-from engine.consumers import AlertConsumer
-from engine.models import Strategy, Alert
+from strategies.consumers import AlertConsumer
+from strategies.models import Strategy, Alert
 
 
 # --------------------------------------------------------------------------
@@ -117,7 +118,7 @@ def test_cached_compute_release_is_owned():
 def test_cached_compute_callable_ttl_uses_computed_value():
     """ttl may be callable(value) -> int, so degraded (synthetic) payloads can
     be cached for less time than good ones."""
-    import identity.caching as caching_mod
+    import common.caching as caching_mod
 
     recorded = {}
     real_set = cache.set
@@ -147,12 +148,12 @@ def test_cached_compute_callable_ttl_uses_computed_value():
 # --------------------------------------------------------------------------
 
 def test_analysis_computed_once_across_requests(auth_client, monkeypatch):
-    real = views_mod.analyze_market
+    real = market_views.analyze_market
     calls = []
     def counting(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
-    monkeypatch.setattr(views_mod, "analyze_market", counting)
+    monkeypatch.setattr(market_views, "analyze_market", counting)
 
     r1 = auth_client.get("/api/v1/markets/AAPL/analysis/")
     r2 = auth_client.get("/api/v1/markets/AAPL/analysis/")
@@ -188,13 +189,13 @@ def test_views_cache_synthetic_payloads_briefly(auth_client, monkeypatch, settin
     """The views hand cached_compute a provenance-aware TTL: synthetic fallback
     payloads live SYNTHETIC_CACHE_TTL seconds, real ones the full TTL."""
     captured = {}
-    real = views_mod.cached_compute
+    real = market_views.cached_compute
 
     def spying(key, ttl, compute, **kwargs):
         captured["ttl"] = ttl
         return real(key, ttl, compute, **kwargs)
 
-    monkeypatch.setattr(views_mod, "cached_compute", spying)
+    monkeypatch.setattr(market_views, "cached_compute", spying)
     resp = auth_client.get("/api/v1/markets/AAPL/analysis/")
     assert resp.status_code == 200
 
@@ -224,12 +225,12 @@ def _make_strategy(workspace, **overrides):
 
 
 def test_replay_cache_shared_across_identical_conditions(auth_client, workspace, monkeypatch):
-    real = views_mod.replay_condition
+    real = strategy_views.replay_condition
     calls = []
     def counting(*args, **kwargs):
         calls.append(1)
         return real(*args, **kwargs)
-    monkeypatch.setattr(views_mod, "replay_condition", counting)
+    monkeypatch.setattr(strategy_views, "replay_condition", counting)
 
     s1 = _make_strategy(workspace, name="one")
     s2 = _make_strategy(workspace, name="two")
@@ -348,7 +349,7 @@ def test_ws_auth_reads_the_token_from_the_subprotocol_header():
     from django.contrib.auth import get_user_model
     from rest_framework_simplejwt.tokens import RefreshToken
 
-    from engine.ws_auth import JWTAuthMiddleware
+    from strategies.ws_auth import JWTAuthMiddleware
 
     user = get_user_model().objects.create_user(username="socketeer", password="pw12345!")
     token = str(RefreshToken.for_user(user).access_token)

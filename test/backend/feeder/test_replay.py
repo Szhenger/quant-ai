@@ -1,7 +1,7 @@
 """Signal replay: the deterministic 'would this have fired?' timeline."""
 import pytest
 
-from feeder import replay_condition, simple_condition, validate_condition_tree
+from markets import replay_condition, simple_condition, validate_condition_tree
 
 
 def _tree(indicator, op, right):
@@ -48,7 +48,7 @@ def test_replay_carries_dates_and_metric():
 
 def test_replay_matches_live_eval_on_the_last_bar():
     # The last bar of a replay must agree with the live single-shot evaluation.
-    from feeder import evaluate_condition_tree
+    from markets import evaluate_condition_tree
 
     closes = [10, 10, 10, 10, 12]
     tree = validate_condition_tree(simple_condition("Z_SCORE", ">", 1.0, {"window": 5}))

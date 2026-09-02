@@ -5,7 +5,7 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from identity.models import Workspace
-from .events import workspace_group
+from common.events import workspace_group
 
 
 class AlertConsumer(AsyncJsonWebsocketConsumer):
@@ -59,7 +59,7 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
 
     async def workspace_event(self, event):
         """Handler for {'type': 'workspace.event', 'data': {event, ...}} group
-        sends (see engine/events.py): a state change the client should refetch."""
+        sends (see common/events.py): a state change the client should refetch."""
         await self.send_json({"type": "event", **event["data"]})
 
     @database_sync_to_async

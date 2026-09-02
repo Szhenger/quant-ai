@@ -132,7 +132,7 @@ None of this makes the rule useless — it makes it a **model**, with a stated a
 
 ## 6.7 In the code
 
-Open [`backend/feeder/indicators.py`](../backend/feeder/indicators.py). Here is the entire volatility builder — read it against the theorem:
+Open [`backend/markets/indicators.py`](../backend/markets/indicators.py). Here is the entire volatility builder — read it against the theorem:
 
 ```python
 def _volatility_series(closes: List[float], window: int) -> List[Optional[float]]:

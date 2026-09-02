@@ -1,9 +1,12 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
-from .views import WorkspaceViewSet, WatchedTickerViewSet
+from .views import LimitsView, WorkspaceViewSet
 
 router = DefaultRouter()
 router.register(r"workspaces", WorkspaceViewSet, basename="workspace")
-router.register(r"watchlist", WatchedTickerViewSet, basename="watchlist")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("limits/", LimitsView.as_view(), name="account-limits"),
+    *router.urls,
+]

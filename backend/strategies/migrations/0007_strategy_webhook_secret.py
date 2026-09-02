@@ -3,7 +3,7 @@ import uuid
 
 from django.db import migrations, models
 
-import engine.models
+import strategies.models
 
 
 def _randomize_existing_secrets(apps, schema_editor):
@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='strategy',
             name='webhook_secret',
-            field=models.CharField(default=engine.models._new_webhook_secret, editable=False, max_length=64),
+            field=models.CharField(default=strategies.models._new_webhook_secret, editable=False, max_length=64),
         ),
         migrations.RunPython(_randomize_existing_secrets, migrations.RunPython.noop),
     ]

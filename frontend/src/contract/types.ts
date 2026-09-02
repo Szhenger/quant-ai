@@ -53,7 +53,7 @@ export interface Indicator {
   // price-scaled indicators where no universal default exists.
   default_threshold: number | null;
   help: string;
-  // Field-registry metadata (see feeder/indicators.py): whether this field
+  // Field-registry metadata (see markets/indicators.py): whether this field
   // leads a stock-page summary, and how to word a value.
   summary: boolean;
   readings: IndicatorReading[];
@@ -165,7 +165,7 @@ export interface StockHistory {
 
 export type StrategyStatus = string;
 
-// Upper bounds on what one strategy costs the fleet per day (engine/limits.py):
+// Upper bounds on what one strategy costs the fleet per day (identity/limits.py):
 // one evaluation per poll interval; with AI on, at most one paid call per
 // cooldown window and never more than one per evaluation.
 export interface CostEstimate {
@@ -299,7 +299,7 @@ export interface Alert {
   created_at: string;
 }
 
-// Workspace event frames pushed over the socket (see backend/engine/events.py):
+// Workspace event frames pushed over the socket (see backend/common/events.py):
 // "something about X changed" — identifiers only, the client refetches.
 export type WorkspaceEvent =
   | { event: "stockpage.updated"; watch_id: string; ticker: string; measure: string }

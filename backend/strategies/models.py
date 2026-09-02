@@ -4,7 +4,7 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 from identity.models import Workspace
-from feeder import INDICATOR_SPECS, OPERATORS
+from markets import INDICATOR_SPECS, OPERATORS
 
 INDICATOR_CHOICES = [(k, v["label"]) for k, v in INDICATOR_SPECS.items()]
 OPERATOR_CHOICES = [(k, v) for k, v in OPERATORS.items()]
@@ -96,7 +96,7 @@ class Strategy(models.Model):
         synthesise a one-leaf tree from their flat columns — so evaluation and
         replay both take a single code path regardless of how it was authored.
         """
-        from feeder import simple_condition, validate_condition_tree
+        from markets import simple_condition, validate_condition_tree
 
         tree = self.condition or simple_condition(
             self.indicator, self.operator, self.threshold, self.params

@@ -9,8 +9,8 @@ from django.test import override_settings
 
 from advisor import budget
 from advisor.claude_client import ClaudeClient
-from engine.limits import estimate_strategy_cost
-from engine.models import Strategy
+from identity.limits import estimate_strategy_cost
+from strategies.models import Strategy
 
 pytestmark = pytest.mark.django_db
 

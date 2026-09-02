@@ -14,9 +14,9 @@ from django.conf import settings
 from django.utils import timezone
 from django.utils.module_loading import import_string
 
-from engine import tasks
-from engine.models import Alert, Strategy
-from engine.tasks import EVAL_LOCK_TTL
+from strategies import tasks
+from strategies.models import Alert, Strategy
+from strategies.tasks import EVAL_LOCK_TTL
 
 pytestmark = pytest.mark.django_db
 
@@ -205,7 +205,7 @@ def test_prune_deletes_only_alerts_past_retention(workspace, settings):
     strategy = _strategy(workspace)
     old = _alert(workspace, strategy, age_minutes=60 * 24 * 31)
     fresh = _alert(workspace, strategy, age_minutes=60)
-    tasks.prune_expired_records()
+    tasks.prune_expired_alerts()
     remaining = set(Alert.objects.values_list("id", flat=True))
     assert fresh.id in remaining
     assert old.id not in remaining

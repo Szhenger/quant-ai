@@ -3,7 +3,7 @@
 This folder is the mathematical heart of the project: eight chapters that build
 quantitative finance **from first principles**, in the spirit of CS50 — no step skipped
 because it's "standard", every formula derived before it's used, and every derivation
-pointing at the exact line of code in [`backend/feeder/indicators.py`](../backend/feeder/indicators.py)
+pointing at the exact line of code in [`backend/markets/indicators.py`](../backend/markets/indicators.py)
 that computes it.
 
 You need nothing beyond CS50x plus three pieces of undergraduate math: basic calculus,

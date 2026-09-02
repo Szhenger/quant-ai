@@ -14,7 +14,7 @@ from django.urls import URLPattern, URLResolver, get_resolver, reverse
 from django.urls.exceptions import NoReverseMatch
 from rest_framework.test import APIClient
 
-from engine.models import Strategy
+from strategies.models import Strategy
 
 pytestmark = pytest.mark.django_db
 
@@ -100,11 +100,11 @@ def test_every_non_public_route_rejects_anonymous_requests():
 def test_every_scoped_throttle_has_a_configured_rate():
     """A throttle_scope without a rate entry raises ImproperlyConfigured at
     request time — in production, on the first hit."""
-    from engine import views as engine_views
+    from markets import views as market_views
 
     configured = set(settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"])
     used = {"evaluate", "replay", "analysis"}
-    assert engine_views.MarketAnalysisView.throttle_scope in configured
+    assert market_views.MarketAnalysisView.throttle_scope in configured
     assert used <= configured, f"unconfigured scopes: {used - configured}"
 
 
@@ -159,7 +159,7 @@ def test_cross_tenant_probes_read_as_not_found(auth_client):
 def test_eager_evaluate_errors_never_leak_exception_text(auth_client, workspace, monkeypatch):
     """Internal exception strings (paths, hosts, library internals) stay in
     the logs and strategy.last_error — the API returns only the status."""
-    from engine import tasks as engine_tasks
+    from strategies import tasks as strategy_tasks
 
     strategy = Strategy.objects.create(
         workspace=workspace, name="Boom", ticker="AAPL",
@@ -169,7 +169,7 @@ def test_eager_evaluate_errors_never_leak_exception_text(auth_client, workspace,
     def broken_provider():
         raise RuntimeError("psycopg://internal-host:5432 exploded")
 
-    monkeypatch.setattr(engine_tasks, "get_provider", broken_provider)
+    monkeypatch.setattr(strategy_tasks, "get_provider", broken_provider)
     response = auth_client.post(f"/api/v1/strategies/{strategy.id}/evaluate/")
     assert response.status_code == 200
     assert response.json() == {"status": "error"}

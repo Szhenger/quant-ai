@@ -8,8 +8,8 @@ import pytest
 
 pytest.importorskip("duckdb")
 
-from feeder.barstore import BarStore, CachingProvider  # noqa: E402
-from feeder.providers import BaseProvider, PriceSeries  # noqa: E402
+from markets.barstore import BarStore, CachingProvider  # noqa: E402
+from markets.providers import BaseProvider, PriceSeries  # noqa: E402
 
 
 class _CountingProvider(BaseProvider):

@@ -1,5 +1,5 @@
 /**
- * estimateStrategyCost mirrors engine.limits.estimate_strategy_cost; the
+ * estimateStrategyCost mirrors identity.limits.estimate_strategy_cost; the
  * numbers here are the same ones test_limits.py pins on the backend.
  */
 import { describe, expect, it } from "vitest";

@@ -53,7 +53,7 @@ export function useAlertsSocket(): void {
       buildProtocols: () => {
         const { access } = useAuthStore.getState();
         // The server accepts "quantai.v1" and reads the bearer token from the
-        // second offered subprotocol (see backend/engine/ws_auth.py).
+        // second offered subprotocol (see backend/strategies/ws_auth.py).
         return access ? ["quantai.v1", `quantai.token.${access}`] : undefined;
       },
       onAlert: (raw) => {

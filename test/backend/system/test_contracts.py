@@ -10,9 +10,9 @@ from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
 from identity.models import Workspace
-from engine.delivery import _payload
-from engine.models import Strategy, Alert
-from engine.tasks import evaluate_strategy
+from strategies.delivery import _payload
+from strategies.models import Strategy, Alert
+from strategies.tasks import evaluate_strategy
 
 pytestmark = pytest.mark.django_db
 

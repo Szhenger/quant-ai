@@ -4,9 +4,9 @@ from unittest.mock import patch
 import pytest
 from django.core import mail
 
-from engine.delivery import TransientDeliveryError, _record, _send_webhook
-from engine.models import Strategy, Alert
-from engine.tasks import evaluate_strategy
+from strategies.delivery import TransientDeliveryError, _record, _send_webhook
+from strategies.models import Strategy, Alert
+from strategies.tasks import evaluate_strategy
 
 pytestmark = pytest.mark.django_db
 

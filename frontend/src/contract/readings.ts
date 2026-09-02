@@ -1,7 +1,7 @@
 import type { Indicator, IndicatorReading } from "./types";
 
 /**
- * Word a field value exactly as the server does (feeder.indicators.read_indicator):
+ * Word a field value exactly as the server does (markets.indicators.read_indicator):
  * walk the field's reading bands in order, first band that holds wins, a band
  * with no operator is the catch-all. Kept in lockstep with the backend so the
  * analysis table and the stock page never disagree about what "oversold" means.

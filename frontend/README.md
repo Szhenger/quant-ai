@@ -35,7 +35,7 @@ src/
 ├── contract/            # the frontend half of the wire contract — pure modules, pinned by test/frontend/contract/
 │   ├── types.ts         # TypeScript shapes of the API payloads (Strategy, Alert, StockPage, …)
 │   ├── readings.ts      # readIndicator(): word a value from the field registry's reading bands (mirrors the backend)
-│   ├── estimate.ts      # estimateStrategyCost(): the deploy-time cost estimate (mirrors engine/limits.py)
+│   ├── estimate.ts      # estimateStrategyCost(): the deploy-time cost estimate (mirrors identity/limits.py)
 │   └── cursor.ts        # relativizeCursor(): keep DRF's absolute cursor links same-origin
 ├── realtime/
 │   ├── socket.ts        # a WebSocket that stays up: reconnect w/ backoff+jitter, heartbeat ping/pong
@@ -127,7 +127,7 @@ product here, so `realtime/socket.ts` adds what the primitive lacks:
 The same socket is also the app's **subscription channel**. Background work on the server
 (a stock page recompiling, a strategy evaluation finishing on a worker) publishes a small
 `{type: "event", event: "stockpage.updated" | "strategy.evaluated", ...ids}` frame to the
-workspace group (`backend/engine/events.py`), and `useAlertsSocket.ts` invalidates the matching
+workspace group (`backend/common/events.py`), and `useAlertsSocket.ts` invalidates the matching
 React Query key so the panel refetches through the normal authenticated REST path. Events carry
 identifiers, never data. The old timers (a 30s strategies poll, a 2.5s stock-page poll) still
 exist in each feature's `hooks.ts` but only run while the socket is down — see `useSocketLive()` in

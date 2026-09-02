@@ -9,10 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from engine import tasks
-from engine.compiler import GraphCompilationError, compile_graph
-from engine.models import Strategy
-from feeder.indicators import compute_indicator
+from strategies import tasks
+from strategies.compiler import GraphCompilationError, compile_graph
+from strategies.models import Strategy
+from markets.indicators import compute_indicator
 
 pytestmark = pytest.mark.django_db
 
@@ -142,7 +142,7 @@ def test_enabling_a_channel_does_not_backfill_deliveries_for_old_alerts(
 
     from django.utils import timezone
 
-    from engine.models import Alert
+    from strategies.models import Alert
 
     strategy = _strategy(workspace, notify_in_app=True, notify_email=False)
     alert = Alert.objects.create(
@@ -171,7 +171,7 @@ def test_enabling_a_channel_does_not_backfill_deliveries_for_old_alerts(
 def test_lock_contention_requeues_once_instead_of_dropping_the_run(workspace, monkeypatch):
     from django.core.cache import cache
 
-    from engine.tasks import EVAL_LOCK_TTL, _lock_key
+    from strategies.tasks import EVAL_LOCK_TTL, _lock_key
 
     strategy = _strategy(workspace)
     cache.add(_lock_key(str(strategy.pk)), "1", EVAL_LOCK_TTL)  # orphaned lock

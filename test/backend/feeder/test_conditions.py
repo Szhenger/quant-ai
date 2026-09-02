@@ -1,7 +1,7 @@
-"""Composite condition-tree engine (marketdata/conditions.py) + SMA/EMA indicators."""
+"""Composite condition-tree engine (markets/conditions.py) + SMA/EMA indicators."""
 import pytest
 
-from feeder import (
+from markets import (
     ConditionError,
     compute_indicator,
     condition_lookback_days,

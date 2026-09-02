@@ -21,7 +21,7 @@ test/
 ├── framework/             # qtest's implementation (suite registry + toolchains)
 ├── backend/               # the pytest suite (Django + Celery + PostgreSQL)
 │   ├── conftest.py        #   shared fixtures + directory→marker mapping
-│   ├── feeder/            #   quant math, providers, bar cache, replay
+│   ├── markets/            #   quant math, providers, bar cache, replay
 │   ├── engine/            #   evaluation, compiler, delivery
 │   ├── rest/              #   REST component invariants (route sweep, limits)
 │   ├── tasking/           #   Celery/Redis behavior + config invariants
@@ -90,7 +90,7 @@ application's correctness rests on:
 |---|---|---|
 | `rest` | The HTTP API behaves: every route the resolver serves demands auth unless explicitly classified public (a *discovery* sweep — adding an endpoint without classifying it fails); wire shapes match the DRF contract tests; `?limit=` is bounded; throttle scopes are configured; cross-tenant probes read as 404, never 403. | `backend/rest/`, `backend/system/` |
 | `react` | The frontend logic behaves: alert-cache merges never lose a socket-delivered alert to a stale refetch, reconnect backoff is capped and jittered, cursor pagination survives absolute URLs, and `types.ts` still matches the golden fixtures. | `frontend/` |
-| `celery-redis` | The evaluation fleet behaves: the sweep claims each due strategy exactly once (and rolls the claim back if the broker enqueue fails), the per-strategy eval lock outlives the task time limit, delivery reconciliation re-enqueues only what never recorded an outcome, retention prunes on schedule, and the broker speaks JSON only — never pickle. | `backend/tasking/`, `backend/engine/` |
+| `celery-redis` | The evaluation fleet behaves: the sweep claims each due strategy exactly once (and rolls the claim back if the broker enqueue fails), the per-strategy eval lock outlives the task time limit, delivery reconciliation re-enqueues only what never recorded an outcome, retention prunes on schedule, and the broker speaks JSON only — never pickle. | `backend/tasking/`, `backend/strategies/` |
 | `postgres` | Storage behaves on the production engine: JSONB round-trips and containment queries, `CHECK` constraints and uniqueness enforced by the database itself, cascades vs `SET_NULL` on delete, a real two-connection `SELECT FOR UPDATE` block, the cursor-pagination index, and zero model↔migration drift. | `backend/storage/` |
 
 Supporting suites: `indicators` (every formula from the `math/` chapters

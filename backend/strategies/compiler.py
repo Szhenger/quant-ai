@@ -15,7 +15,7 @@ threshold, params}`` — ``condition`` is the tree; the flat fields are a
 representative leaf (kept for the default name / display). The plain form builder
 POSTs structured fields directly and never touches this module.
 """
-from feeder import INDICATOR_SPECS, OPERATORS, representative_fields
+from markets import INDICATOR_SPECS, OPERATORS, representative_fields
 
 
 class GraphCompilationError(Exception):

@@ -4,8 +4,8 @@ import pytest
 from django.core.cache import cache
 from django.utils import timezone
 
-from engine.models import Strategy, Alert
-from engine.tasks import evaluate_strategy, sweep_due_strategies, _lock_key
+from strategies.models import Strategy, Alert
+from strategies.tasks import evaluate_strategy, sweep_due_strategies, _lock_key
 
 pytestmark = pytest.mark.django_db
 
@@ -118,7 +118,7 @@ def test_composite_and_not_met_creates_no_alert(workspace):
 
 def test_repeated_failures_trip_the_circuit_breaker(workspace):
     s = _strategy(workspace)
-    with patch("engine.tasks.get_provider", side_effect=RuntimeError("boom")):
+    with patch("strategies.tasks.get_provider", side_effect=RuntimeError("boom")):
         for _ in range(5):
             evaluate_strategy(str(s.id))
     s.refresh_from_db()
@@ -126,7 +126,7 @@ def test_repeated_failures_trip_the_circuit_breaker(workspace):
     assert s.consecutive_failures == 5
     assert "boom" in s.last_error
     # A tripped strategy is no longer swept.
-    with patch("engine.tasks.evaluate_strategy.delay") as delay:
+    with patch("strategies.tasks.evaluate_strategy.delay") as delay:
         assert sweep_due_strategies()["queued"] == 0
     assert delay.call_count == 0
 
@@ -184,7 +184,7 @@ def test_sweep_enqueues_only_due_strategies(workspace):
                     last_evaluated_at=timezone.now() - timedelta(minutes=16))
     _strategy(workspace, poll_interval_minutes=15,
               last_evaluated_at=timezone.now() - timedelta(minutes=5))
-    with patch("engine.tasks.evaluate_strategy.delay") as delay:
+    with patch("strategies.tasks.evaluate_strategy.delay") as delay:
         result = sweep_due_strategies()
     assert result["queued"] == 1
     delay.assert_called_once_with(str(due.id))
@@ -194,7 +194,7 @@ def test_sweep_claims_each_strategy_once(workspace):
     """S1: two sweep ticks do not enqueue the same due strategy twice — the first
     sweep advances last_evaluated_at (the claim), so the second sees it as not due."""
     _strategy(workspace, poll_interval_minutes=15)  # due (last_evaluated_at is None)
-    with patch("engine.tasks.evaluate_strategy.delay") as delay:
+    with patch("strategies.tasks.evaluate_strategy.delay") as delay:
         first = sweep_due_strategies()
         second = sweep_due_strategies()
     assert first["queued"] == 1

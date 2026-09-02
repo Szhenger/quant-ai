@@ -18,8 +18,8 @@ from unittest.mock import patch
 
 import pytest
 
-from engine.models import Strategy
-from engine.tasks import sweep_due_strategies
+from strategies.models import Strategy
+from strategies.tasks import sweep_due_strategies
 
 from .uxspec import assert_field_error, assert_honest_alert, signup
 
@@ -116,14 +116,14 @@ def test_strategy_lifecycle_journey():
     # Pause stops the scheduler from touching it (it was due: never evaluated).
     assert rita.patch(f"/strategies/{strategy['id']}/", {"status": "paused"}) \
         .json()["status"] == "paused"
-    with patch("engine.tasks.evaluate_strategy.delay") as delay:
+    with patch("strategies.tasks.evaluate_strategy.delay") as delay:
         assert sweep_due_strategies()["queued"] == 0
     assert delay.call_count == 0
 
     # Resume puts it back on the schedule.
     assert rita.patch(f"/strategies/{strategy['id']}/", {"status": "active"}) \
         .json()["status"] == "active"
-    with patch("engine.tasks.evaluate_strategy.delay") as delay:
+    with patch("strategies.tasks.evaluate_strategy.delay") as delay:
         assert sweep_due_strategies()["queued"] == 1
 
     # Rotating the webhook secret changes the secret and nothing else.

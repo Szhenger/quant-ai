@@ -2,8 +2,8 @@ import math
 
 from rest_framework import serializers
 
-from identity.validators import ensure_public_webhook_url, normalize_ticker
-from feeder import (
+from common.validators import ensure_public_webhook_url, normalize_ticker
+from markets import (
     INDICATOR_SPECS,
     OPERATORS,
     describe_tree,
@@ -12,7 +12,7 @@ from feeder import (
     representative_fields,
 )
 from .models import Strategy, Alert
-from .limits import estimate_strategy_cost
+from identity.limits import estimate_strategy_cost
 
 # Upper bound on the free-text prompt forwarded to the AI on every evaluation.
 # Unbounded, it is a cost-amplification vector: N strategies x 1-minute polls

@@ -11,8 +11,8 @@ has two measures, each produced in a **detailed** and a **summarised** form:
     written by Claude (``advisor.ClaudeClient.summarize_news``), refreshed every
     n hours.
 
-Pure functions returning JSON-safe dicts: the ORM models and Celery tasks in
-other apps persist and schedule them. Nothing here touches the database.
+Pure functions returning JSON-safe dicts: ``watchlist.tasks`` persists and
+schedules them. Nothing here touches the database.
 """
 from __future__ import annotations
 
@@ -21,8 +21,7 @@ from typing import List, Optional
 
 from django.conf import settings
 
-from .indicators import analyze_market, read_indicator, summary_indicators
-from .providers import get_provider
+from markets import analyze_market, get_provider, read_indicator, summary_indicators
 
 
 def _macro_days() -> int:

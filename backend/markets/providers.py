@@ -225,7 +225,7 @@ def _maybe_cache(provider: BaseProvider) -> BaseProvider:
 
 def _maybe_shared_cache(provider: BaseProvider) -> BaseProvider:
     """Outermost layer: fleet-wide Redis bar cache with single-flight fetch
-    coalescing (``feeder.shared_cache``), unless ``MARKETDATA_SHARED_CACHE`` is off."""
+    coalescing (``markets.shared_cache``), unless ``MARKETDATA_SHARED_CACHE`` is off."""
     if not settings.MARKETDATA_SHARED_CACHE:
         return provider
     from .shared_cache import SharedCacheProvider

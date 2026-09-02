@@ -19,7 +19,9 @@ from channels.layers import get_channel_layer
 
 logger = logging.getLogger(__name__)
 
-# Event vocabulary. The client switches on these strings (realtime/useAlertsSocket.ts).
+# Event vocabulary — the one registry, mirrored by the client's WorkspaceEvent
+# type (frontend/src/contract/types.ts; switched on in realtime/useAlertsSocket.ts).
+# Each feature publishes its own events; all of them are named here.
 STOCKPAGE_UPDATED = "stockpage.updated"      # {watch_id, ticker, measure}
 STRATEGY_EVALUATED = "strategy.evaluated"    # {strategy_id, status, value?}
 

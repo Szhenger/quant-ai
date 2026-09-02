@@ -10,7 +10,7 @@ import statistics
 
 import pytest
 
-from feeder.indicators import (
+from markets.indicators import (
     INDICATOR_SPECS,
     MAX_LOOKBACK_DAYS,
     PARAM_MAXIMUM,

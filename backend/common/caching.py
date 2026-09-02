@@ -29,6 +29,7 @@ import json
 import time
 import uuid
 
+from django.conf import settings
 from django.core.cache import cache
 from rest_framework.response import Response
 
@@ -51,6 +52,17 @@ def stable_key(prefix: str, params) -> str:
     """Deterministic cache key from a JSON-serialisable parameter bundle."""
     digest = hashlib.sha256(_canonical(params)).hexdigest()
     return f"quantai:compute:{prefix}:{digest}"
+
+
+def provenance_ttl(base_ttl):
+    """TTL chooser for cached market payloads: results computed from synthetic
+    fallback data get a short life (``SYNTHETIC_CACHE_TTL``), so a connectivity
+    blip never pins fabricated numbers in the fleet-wide cache for the full TTL."""
+    def ttl(payload):
+        if payload.get("synthetic"):
+            return settings.SYNTHETIC_CACHE_TTL
+        return base_ttl
+    return ttl
 
 
 def _resolve_ttl(ttl, value) -> int:
@@ -105,26 +117,6 @@ def cached_compute(key: str, ttl, compute, *, wait_budget: float = 0.0):
     value = compute()
     cache.set(key, {"v": value}, _resolve_ttl(ttl, value))
     return value, False
-
-
-# --- Stock-page warm markers ---------------------------------------------------
-# One marker per (watched ticker, measure) while a compile for that measure is
-# in flight. The page view sets it when it enqueues a compile (debounce) and
-# reports ``refreshing`` while it exists; the compile task clears it on
-# completion. The TTL bounds a crashed compile: the marker self-expires and
-# the page stops reporting a refresh that will never land.
-STOCKPAGE_MEASURES = ("quantitative", "qualitative")
-STOCKPAGE_WARM_TTL = 90
-
-
-def stockpage_warm_key(watched_id, measure: str) -> str:
-    return f"quantai:stockpage-warm:{watched_id}:{measure}"
-
-
-def stockpage_refreshing(watched_id) -> bool:
-    """True while any measure of this ticker's page is being (re)compiled."""
-    keys = [stockpage_warm_key(watched_id, m) for m in STOCKPAGE_MEASURES]
-    return any(v is not None for v in cache.get_many(keys).values())
 
 
 def _normalize_etag(raw: str) -> str:
