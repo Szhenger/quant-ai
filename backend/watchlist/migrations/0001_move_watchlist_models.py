@@ -12,12 +12,36 @@ import uuid
 import watchlist.models
 from django.db import migrations, models
 
+_MOVED = ("watchedticker", "stockpage", "quantsnapshot")
+
+
+def relabel_content_types(apps, schema_editor):
+    """Re-point the three models' ContentType rows from ``core`` to
+    ``watchlist`` so permissions and admin log entries follow the move instead
+    of being orphaned (and later deleted by ``remove_stale_contenttypes``)."""
+    ContentType = apps.get_model("contenttypes", "ContentType")
+    for model in _MOVED:
+        if ContentType.objects.filter(app_label="watchlist", model=model).exists():
+            ContentType.objects.filter(app_label="core", model=model).delete()
+        else:
+            ContentType.objects.filter(app_label="core", model=model).update(app_label="watchlist")
+
+
+def unlabel_content_types(apps, schema_editor):
+    ContentType = apps.get_model("contenttypes", "ContentType")
+    for model in _MOVED:
+        if ContentType.objects.filter(app_label="core", model=model).exists():
+            ContentType.objects.filter(app_label="watchlist", model=model).delete()
+        else:
+            ContentType.objects.filter(app_label="watchlist", model=model).update(app_label="core")
+
 
 class Migration(migrations.Migration):
 
     initial = True
 
     dependencies = [
+        ('contenttypes', '0002_remove_content_type_name'),
         ('core', '0003_move_watchlist_models'),
     ]
 
@@ -76,4 +100,5 @@ class Migration(migrations.Migration):
             ),
             ],
         ),
+        migrations.RunPython(relabel_content_types, unlabel_content_types),
     ]

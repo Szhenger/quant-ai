@@ -45,8 +45,15 @@ def pytest_collection_modifyitems(items):
             continue
         top = parts[0]
         marker = _SYSTEM_FILE_MARKERS.get(parts[-1]) if top == "system" else _DIR_MARKERS.get(top)
-        if marker:
-            item.add_marker(getattr(pytest.mark, marker))
+        if marker is None:
+            # A test no suite would ever select is a test that silently never
+            # runs under qtest — refuse to collect it until it is classified.
+            raise pytest.UsageError(
+                f"{'/'.join(parts)} has no focus-area marker: add its directory to "
+                "_DIR_MARKERS or, under system/, its filename to _SYSTEM_FILE_MARKERS "
+                "(test/backend/conftest.py)."
+            )
+        item.add_marker(getattr(pytest.mark, marker))
 
 
 @pytest.fixture(autouse=True)
