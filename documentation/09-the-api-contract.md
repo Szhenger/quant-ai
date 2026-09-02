@@ -134,8 +134,8 @@ urlpatterns = [
 | | `POST /auth/token/` | `{username, password}` → `{access, refresh}` | The login desk (§9.3): trade credentials for the two tokens |
 | | `POST /auth/token/refresh/` | `{refresh}` → `{access}` | Renew a 60-minute access token without re-typing your password — the mechanism that makes short access lifetimes bearable |
 | **Workspaces** | `GET/POST /workspaces/` | owner-scoped list/create; `{id, name, created_at}` | The tenant boundary itself. *No `X-Workspace-ID` needed* — you're choosing *which* workspace, so you can't already be in one |
-| **Watchlist** | `GET/POST/DELETE /watchlist/` | `{id, ticker, note, created_at}` in the active workspace | The set of tickers you care about — scoped to the workspace in the header |
-| **Indicators** | `GET /indicators/` | `{indicators:[{key,label,unit,defaults,help}], operators:[{key,label}]}` | A self-describing catalog. The UI builds its strategy form from this, so adding an indicator server-side makes it appear in the client with no frontend change |
+| **Watchlist** | `GET/POST/PATCH/DELETE /watchlist/` | `{id, ticker, note, refresh_interval_hours, recompute_interval_hours, refreshed_at, recomputed_at, has_page, created_at}` in the active workspace; plus `/watchlist/{id}/page/`, `/refresh/`, `/history/` for the compiled stock page | The set of tickers you care about — scoped to the workspace in the header |
+| **Indicators** | `GET /indicators/` | `{indicators:[{key,label,unit,defaults,default_threshold,help,summary,readings}], operators:[{key,label}]}` | A self-describing catalog. The UI builds its strategy form from this, so adding an indicator server-side makes it appear in the client with no frontend change |
 | **Market** | `GET /markets/{ticker}/analysis/?days=180` | `{ticker, provider, dates, closes, latest_price, indicators:{KEY:{label,unit,value,params}}}` | Everything Chapters 1–6 computed, for one ticker, in one call: the price series plus every indicator's current value |
 | **Strategies** | `GET /strategies/` | paginated list (active workspace) | Your monitoring rules |
 | | `POST /strategies/` | create from an explicit body (see below) | Define a rule: ticker + indicator + operator + threshold + AI + delivery + timing |
@@ -231,14 +231,14 @@ class JWTAuthMiddleware(BaseMiddleware):
         try:
             from rest_framework_simplejwt.tokens import AccessToken
             access = AccessToken(token)
-            return get_user_model().objects.get(id=access["user_id"])
+            return get_user_model().objects.get(id=access["user_id"], is_active=True)
         except Exception:  # noqa: BLE001
             return AnonymousUser()
 ```
 
 Same JWT, same signature check (`AccessToken(token)` validates it) — just arriving by a different door because the front door was locked. If anything is wrong, the user becomes `AnonymousUser` and the consumer will reject them.
 
-> **Short: isn't a token in a URL dangerous?** Yes, more so than in a header — URLs get logged by proxies, saved in browser history, leaked in `Referer`. This is exactly why the *access* token, not the refresh token, goes here, and exactly why it lives only 60 minutes (§9.3). The short lifetime and the least-powerful credential are what make an otherwise-uncomfortable compromise acceptable. Defense in depth: no single decision is load-bearing.
+> **Short: why the access token and not the refresh token?** Because the socket only needs to prove *who* you are for the life of the connection, and the access token is the least-powerful credential that can do that: it lives only 60 minutes (§9.3) and cannot mint new tokens. Even riding in a header, a credential on a long-lived connection deserves the smallest blast radius available. Defense in depth: no single decision is load-bearing.
 
 ### The ownership check, again
 
@@ -352,7 +352,7 @@ The map, so you can read the real thing:
 
 - **Routes** — `backend/config/urls.py` (the base-path table above), `backend/identity/urls.py` (a DRF router for `workspaces` and `watchlist`), `backend/engine/urls.py` (a router for `strategies` and `alerts`, plus explicit `indicators/` and `markets/<ticker>/analysis/` paths).
 - **Authorization choke point** — `resolve_active_workspace` in `backend/identity/workspaces.py`. Every scoped view calls it; it is the single line where tenancy is enforced over HTTP.
-- **WebSocket auth** — `JWTAuthMiddleware` in `backend/engine/ws_auth.py` (token from the query string), and the `4001/4003` ownership check in `AlertConsumer.connect()` in `backend/engine/consumers.py`. The socket is routed in `backend/engine/routing.py` and mounted in `backend/config/asgi.py`, where HTTP and WebSocket protocols split.
+- **WebSocket auth** — `JWTAuthMiddleware` in `backend/engine/ws_auth.py` (token from the `Sec-WebSocket-Protocol` subprotocol list, never the URL), and the `4001/4003` ownership check in `AlertConsumer.connect()` in `backend/engine/consumers.py`. The socket is routed in `backend/engine/routing.py` and mounted in `backend/config/asgi.py`, where HTTP and WebSocket protocols split.
 - **Token policy** — the `SIMPLE_JWT` block in `backend/config/settings.py` (lifetimes, rotation, blacklist).
 
 ## 9.10 Worked example: read the contract like a lawyer

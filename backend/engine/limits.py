@@ -21,7 +21,7 @@ MINUTES_PER_DAY = 24 * 60
 
 def strategy_cap() -> int:
     """Strategies one workspace may hold. 0 = unlimited."""
-    return int(getattr(settings, "STRATEGY_MAX_PER_WORKSPACE", 50))
+    return int(settings.STRATEGY_MAX_PER_WORKSPACE)
 
 
 def strategy_count(workspace) -> int:

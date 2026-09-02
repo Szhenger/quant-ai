@@ -26,15 +26,15 @@ from .providers import get_provider
 
 
 def _macro_days() -> int:
-    return int(getattr(settings, "STOCKPAGE_MACRO_DAYS", 180))
+    return int(settings.STOCKPAGE_MACRO_DAYS)
 
 
 def _news_window_days() -> int:
-    return int(getattr(settings, "STOCKPAGE_NEWS_WINDOW_DAYS", 7))
+    return int(settings.STOCKPAGE_NEWS_WINDOW_DAYS)
 
 
 def _news_limit() -> int:
-    return int(getattr(settings, "STOCKPAGE_NEWS_LIMIT", 8))
+    return int(settings.STOCKPAGE_NEWS_LIMIT)
 
 
 # --------------------------------------------------------------------------- #

@@ -267,7 +267,7 @@ def _run_evaluation(strategy_id: str):
     except Exception as exc:  # noqa: BLE001
         logger.exception("Strategy %s evaluation failed", strategy_id)
         try:
-            limit = int(getattr(settings, "STRATEGY_MAX_CONSECUTIVE_FAILURES", 5))
+            limit = int(settings.STRATEGY_MAX_CONSECUTIVE_FAILURES)
             # Atomic conditional update, never a stale read-modify-write: the
             # instance loaded at task start is minutes old by now (price fetch
             # + AI call sit in between), and a user may have paused or
@@ -347,7 +347,7 @@ def prune_expired_records():
     the blacklist tables (rotation writes one row per refresh, forever).
     """
     cutoff = timezone.now() - timedelta(
-        days=int(getattr(settings, "ALERT_RETENTION_DAYS", 180))
+        days=int(settings.ALERT_RETENTION_DAYS)
     )
     deleted, _ = Alert.objects.filter(created_at__lt=cutoff).delete()
     from django.core.management import call_command
@@ -383,7 +383,7 @@ def decompress_measure(blob) -> dict:
 def _prune_snapshots(watched_ticker) -> None:
     from identity.models import QuantSnapshot
 
-    keep = int(getattr(settings, "STOCKPAGE_SNAPSHOT_RETENTION", 30))
+    keep = int(settings.STOCKPAGE_SNAPSHOT_RETENTION)
     stale = list(
         QuantSnapshot.objects.filter(watched_ticker=watched_ticker)
         .order_by("-taken_at")

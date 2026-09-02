@@ -213,7 +213,7 @@ class ResilientProvider(BaseProvider):
 def _maybe_cache(provider: BaseProvider) -> BaseProvider:
     """Wrap a provider in the local Parquet/DuckDB bar cache when it is both
     enabled (``MARKETDATA_CACHE``) and available (DuckDB importable)."""
-    if not getattr(settings, "MARKETDATA_CACHE", False):
+    if not settings.MARKETDATA_CACHE:
         return provider
     from .barstore import CachingProvider, bar_store_available
 
@@ -225,16 +225,16 @@ def _maybe_cache(provider: BaseProvider) -> BaseProvider:
 
 def _maybe_shared_cache(provider: BaseProvider) -> BaseProvider:
     """Outermost layer: fleet-wide Redis bar cache with single-flight fetch
-    coalescing (``feeder.service``), unless ``MARKETDATA_SHARED_CACHE`` is off."""
-    if not getattr(settings, "MARKETDATA_SHARED_CACHE", True):
+    coalescing (``feeder.shared_cache``), unless ``MARKETDATA_SHARED_CACHE`` is off."""
+    if not settings.MARKETDATA_SHARED_CACHE:
         return provider
-    from .service import SharedCacheProvider
+    from .shared_cache import SharedCacheProvider
 
     return SharedCacheProvider(provider)
 
 
 def get_provider() -> BaseProvider:
-    mode = getattr(settings, "MARKETDATA_PROVIDER", "auto")
+    mode = settings.MARKETDATA_PROVIDER
     synthetic = SyntheticProvider()
     if mode == "synthetic":
         return synthetic

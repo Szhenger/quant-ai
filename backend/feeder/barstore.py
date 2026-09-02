@@ -41,7 +41,7 @@ class BarStore:
     """Per-ticker Parquet bar cache under a root directory."""
 
     def __init__(self, root: Optional[str] = None):
-        self.root = Path(root or getattr(settings, "MARKETDATA_CACHE_DIR", ".marketdata_cache"))
+        self.root = Path(root or settings.MARKETDATA_CACHE_DIR)
 
     def _path(self, ticker: str) -> Path:
         return self.root / f"{ticker.upper()}.parquet"
@@ -151,7 +151,7 @@ class CachingProvider(BaseProvider):
         self.name = primary.name
         self.store = store or BarStore()
         self.ttl = int(ttl_seconds if ttl_seconds is not None
-                       else getattr(settings, "MARKETDATA_CACHE_TTL", 3600))
+                       else settings.MARKETDATA_CACHE_TTL)
 
     def history(self, ticker: str, days: int = 180) -> PriceSeries:
         age = self.store.age_seconds(ticker)

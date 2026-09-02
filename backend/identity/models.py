@@ -6,11 +6,11 @@ from django.db import models
 
 
 def _default_refresh_hours() -> int:
-    return int(getattr(settings, "STOCKPAGE_REFRESH_INTERVAL_HOURS", 6))
+    return int(settings.STOCKPAGE_REFRESH_INTERVAL_HOURS)
 
 
 def _default_recompute_hours() -> int:
-    return int(getattr(settings, "STOCKPAGE_RECOMPUTE_INTERVAL_HOURS", 24))
+    return int(settings.STOCKPAGE_RECOMPUTE_INTERVAL_HOURS)
 
 
 class Workspace(models.Model):

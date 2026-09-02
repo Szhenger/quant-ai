@@ -109,12 +109,12 @@ class SharedCacheProvider(BaseProvider):
         # source lives on ``PriceSeries.synthetic`` (same rule as ResilientProvider).
         self.name = primary.name
         self.ttl = int(ttl_seconds if ttl_seconds is not None
-                       else getattr(settings, "MARKETDATA_SHARED_CACHE_TTL", 300))
+                       else settings.MARKETDATA_SHARED_CACHE_TTL)
         self.synthetic_ttl = int(
             synthetic_ttl_seconds if synthetic_ttl_seconds is not None
-            else getattr(settings, "MARKETDATA_SHARED_CACHE_SYNTHETIC_TTL", 30))
+            else settings.MARKETDATA_SHARED_CACHE_SYNTHETIC_TTL)
         self.wait = float(wait_seconds if wait_seconds is not None
-                          else getattr(settings, "MARKETDATA_FETCH_WAIT", 10.0))
+                          else settings.MARKETDATA_FETCH_WAIT)
 
     def _key(self, ticker: str, bucket: int) -> str:
         return f"quantai:bars:{ticker.upper().strip()}:{bucket}"

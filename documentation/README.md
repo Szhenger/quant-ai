@@ -19,7 +19,7 @@ real bugs live, and it cannot be bolted on afterward.
 
 ## The reference docs
 
-- [**`SPECIFICATION.md`**](SPECIFICATION.md) — the engineering specification: what the
+- [**`SPECIFICATION.md`**](../SPECIFICATION.md) — the engineering specification: what the
   system does, the languages, frameworks and services it is built from, the runtime
   topology, and the contracts and invariants every layer must uphold.
 

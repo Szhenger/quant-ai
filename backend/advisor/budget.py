@@ -25,7 +25,7 @@ _KEY_TTL = 2 * 24 * 3600
 
 
 def daily_budget() -> int:
-    return int(getattr(settings, "AI_DAILY_CALL_BUDGET", 200))
+    return int(settings.AI_DAILY_CALL_BUDGET)
 
 
 def _today() -> datetime:

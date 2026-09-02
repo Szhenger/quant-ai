@@ -1,4 +1,4 @@
-"""Fleet-wide shared bar cache + single-flight coalescing (feeder.service).
+"""Fleet-wide shared bar cache + single-flight coalescing (feeder.shared_cache).
 
 Uses the test LocMem cache (cleared between tests by conftest's autouse
 fixture) and a counting fake provider — the semantics under Redis are the same.
@@ -8,7 +8,7 @@ import datetime as dt
 from django.core.cache import cache
 
 from feeder.providers import BaseProvider, PriceSeries
-from feeder.service import SharedCacheProvider, _bucket
+from feeder.shared_cache import SharedCacheProvider, _bucket
 
 
 class _CountingProvider(BaseProvider):
@@ -108,7 +108,7 @@ def test_lock_holder_rechecks_cache_before_fetching(monkeypatch):
     payload = {"ticker": "AAPL", "closes": [1.0, 2.0],
                "dates": ["2025-01-01", "2025-01-02"], "synthetic": False}
     gets = iter([None, payload])
-    monkeypatch.setattr("feeder.service._cache_get", lambda key: next(gets))
+    monkeypatch.setattr("feeder.shared_cache._cache_get", lambda key: next(gets))
     series = svc.history("AAPL", days=2)
     assert p.calls == 0
     assert series.closes == [1.0, 2.0]

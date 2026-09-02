@@ -45,8 +45,8 @@ class AlertVerdict:
 class ClaudeClient:
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None,
                  user_id=None):
-        self.api_key = api_key if api_key is not None else getattr(settings, "ANTHROPIC_API_KEY", "")
-        self.model = model or getattr(settings, "ANTHROPIC_MODEL", "claude-opus-5")
+        self.api_key = api_key if api_key is not None else settings.ANTHROPIC_API_KEY
+        self.model = model or settings.ANTHROPIC_MODEL
         # The account every paid call is charged against (advisor.budget).
         # None = ungated; every production caller passes the workspace owner.
         self.user_id = user_id
@@ -138,7 +138,7 @@ class ClaudeClient:
             # could outlive the per-strategy eval lock and pin a worker slot.
             client = anthropic.Anthropic(
                 api_key=self.api_key,
-                timeout=float(getattr(settings, "ANTHROPIC_TIMEOUT_SECONDS", 30.0)),
+                timeout=float(settings.ANTHROPIC_TIMEOUT_SECONDS),
                 max_retries=1,
             )
             # max_tokens must cover adaptive thinking PLUS the JSON verdict on
@@ -221,7 +221,7 @@ class ClaudeClient:
         try:
             client = anthropic.Anthropic(
                 api_key=self.api_key,
-                timeout=float(getattr(settings, "ANTHROPIC_TIMEOUT_SECONDS", 30.0)),
+                timeout=float(settings.ANTHROPIC_TIMEOUT_SECONDS),
                 max_retries=1,
             )
             response = client.messages.create(

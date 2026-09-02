@@ -5,6 +5,7 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 from identity.models import Workspace
+from .events import workspace_group
 
 
 class AlertConsumer(AsyncJsonWebsocketConsumer):
@@ -17,9 +18,9 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
             return
         try:
             # Canonical lowercase-hyphenated form: the group name must match
-            # delivery's f"ws_{alert.workspace_id}" exactly, however the URL
-            # spelled the id (uppercase hex would pass the ownership check but
-            # join a group that never receives messages).
+            # what ``events.workspace_group`` builds from the model's UUID,
+            # however the URL spelled the id (uppercase hex would pass the
+            # ownership check but join a group that never receives messages).
             self.workspace_id = str(uuid.UUID(raw_id))
         except ValueError:
             await self.close(code=4003)  # malformed id is nobody's workspace
@@ -28,7 +29,7 @@ class AlertConsumer(AsyncJsonWebsocketConsumer):
             await self.close(code=4003)  # not your workspace
             return
 
-        self.group = f"ws_{self.workspace_id}"
+        self.group = workspace_group(self.workspace_id)
         await self.channel_layer.group_add(self.group, self.channel_name)
         # Echo the app subprotocol when the client offered it (browsers drop
         # the connection if the server selects one they didn't offer, and the

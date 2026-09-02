@@ -133,7 +133,7 @@ So you need a component whose entire job is the clock: a **scheduler**. Ours is 
 ```python
 CELERY_BEAT_SCHEDULE = {
     "sweep-due-strategies-every-minute": {
-        "task": "strategies.tasks.sweep_due_strategies",
+        "task": "engine.tasks.sweep_due_strategies",
         "schedule": 60.0,
     },
 }
@@ -188,33 +188,38 @@ Why is delivery a separate layer from evaluation at all? Because *deciding an al
 Two functions carry the spine of this chapter. First, the scheduler's sweep — the thing Beat calls every 60 seconds — from [`backend/engine/tasks.py`](../backend/engine/tasks.py):
 
 ```python
-@shared_task
+@shared_task(ignore_result=True)
 def sweep_due_strategies():
     now = timezone.now()
     queued = 0
-    active = Strategy.objects.filter(status=Strategy.Status.ACTIVE).only(
-        "id", "last_evaluated_at", "poll_interval_minutes"
+    # "Due" is decided IN the database: each row's poll interval becomes a
+    # duration expression, so a tick costs the number of due strategies,
+    # not the number of active ones.
+    poll_delta = ExpressionWrapper(
+        timedelta(minutes=1) * Cast("poll_interval_minutes", output_field=IntegerField()),
+        output_field=DurationField(),
     )
-    for strategy in active:
-        due = (
-            strategy.last_evaluated_at is None
-            or (now - strategy.last_evaluated_at) >= timedelta(minutes=strategy.poll_interval_minutes)
-        )
-        if not due:
-            continue
+    due = (
+        Strategy.objects.filter(status=Strategy.Status.ACTIVE)
+        .annotate(poll_delta=poll_delta)
+        .filter(Q(last_evaluated_at__isnull=True)
+                | Q(last_evaluated_at__lte=now - F("poll_delta")))
+        .values_list("id", "last_evaluated_at")
+    )
+    for pk, last_eval in due.iterator(chunk_size=500):
         # Atomically claim: only enqueue if THIS row still has the last_evaluated_at
         # we read. A concurrent sweep that already claimed it updates 0 rows here,
         # so the strategy is enqueued exactly once per due window.
         claimed = Strategy.objects.filter(
-            pk=strategy.pk, last_evaluated_at=strategy.last_evaluated_at
+            pk=pk, last_evaluated_at=last_eval
         ).update(last_evaluated_at=now)
         if claimed:
-            evaluate_strategy.delay(str(strategy.pk))
+            evaluate_strategy.delay(str(pk))
             queued += 1
     return {"queued": queued}
 ```
 
-For now, read it as: *find the active strategies, keep the ones whose poll interval has elapsed, and enqueue each.* That `claimed = ... .update(...)` line looks like an odd way to say "enqueue it" — and it is. It's the atomic claim, and it exists entirely to defend against a concurrency bug. We are *deliberately* leaving it mysterious; unpacking it is the whole job of [Chapter 10](10-concurrency-and-safety.md).
+For now, read it as: *ask the database for the active strategies whose poll interval has elapsed, and enqueue each.* That `claimed = ... .update(...)` line looks like an odd way to say "enqueue it" — and it is. It's the atomic claim, and it exists entirely to defend against a concurrency bug. We are *deliberately* leaving it mysterious; unpacking it is the whole job of [Chapter 10](10-concurrency-and-safety.md).
 
 And the shape of the worker task, `_run_evaluation` (the same file), which is the pipeline made literal — read the *comments*, they narrate every stage:
 
@@ -222,22 +227,23 @@ And the shape of the worker task, `_run_evaluation` (the same file), which is th
 def _run_evaluation(strategy_id: str):
     strategy = Strategy.objects.get(id=strategy_id)          # PERSISTENCE: load the rule
     now = timezone.now()
+    tree = strategy.condition_tree()                          # the rule as a condition tree
     provider = get_provider()                                # DATA: resilient provider
-    series = provider.history(strategy.ticker, days=lookback_days(...))
-    result = compute_indicator(strategy.indicator, series.closes, strategy.params)  # COMPUTATION
-    value = result["value"]
+    series = provider.history(strategy.ticker, days=condition_lookback_days(tree))
+    outcome = evaluate_condition_tree(tree, series.closes)   # COMPUTATION + CONDITION
+    value = primary_metric(outcome["detail"])
 
-    if not evaluate_condition(strategy.operator, value, ..., strategy.threshold):    # CONDITION
+    if not outcome["result"]:
         _persist_eval(strategy, value, now)
         return {"status": "quant_not_met", "value": value}
 
     # ... cooldown check (Chapter 7) ...
 
     if strategy.ai_enabled:                                   # AI (Chapter 7)
-        verdict = ClaudeClient().assess(...)
+        verdict = ClaudeClient(user_id=strategy.workspace.owner_id).assess(...)
     # ...
     with transaction.atomic():                               # PERSISTENCE: create Alert + stamp
-        alert = Alert.objects.create(...)
+        alert = Alert.objects.create(..., condition_detail=outcome["detail"])
         # ... stamp last_triggered_at ...
     deliver_alert(alert, locked)                             # DELIVERY: fan out to 3 channels
     return {"status": "alerted", "alert_id": str(alert.id), "value": value}
@@ -248,7 +254,7 @@ def _run_evaluation(strategy_id: str):
 ```python
 CELERY_BEAT_SCHEDULE = {
     "sweep-due-strategies-every-minute": {
-        "task": "strategies.tasks.sweep_due_strategies",
+        "task": "engine.tasks.sweep_due_strategies",
         "schedule": 60.0,
     },
 }
@@ -258,7 +264,7 @@ CELERY_BEAT_SCHEDULE = {
 
 Let's trace a single strategy through every file, so the layers stop being abstract.
 
-1. **Creation (persistence).** You POST to create a strategy: *"AAPL, 20-day z-score, `<`, −2, AI on, notify in-app and email."* The request carries your `X-Workspace-ID` header; [`core/workspaces.py`](../backend/identity/workspaces.py) resolves and *authorizes* your workspace, and a `Strategy` row is written by the view in [`strategies/views.py`](../backend/engine/views.py). Its `last_evaluated_at` is `None`. The POST returns in milliseconds. **Nothing is computed yet** — and §8.11 asks you to defend that choice.
+1. **Creation (persistence).** You POST to create a strategy: *"AAPL, 20-day z-score, `<`, −2, AI on, notify in-app and email."* The request carries your `X-Workspace-ID` header; [`identity/workspaces.py`](../backend/identity/workspaces.py) resolves and *authorizes* your workspace, and a `Strategy` row is written by the view in [`engine/views.py`](../backend/engine/views.py). Its `last_evaluated_at` is `None`. The POST returns in milliseconds. **Nothing is computed yet** — and §8.11 asks you to defend that choice.
 
 2. **A tick (scheduling).** Up to 60 seconds later, Celery Beat fires `sweep_due_strategies` ([`engine/tasks.py`](../backend/engine/tasks.py)). Your strategy has `last_evaluated_at is None`, so it's due. The sweep claims it and calls `evaluate_strategy.delay("...")` — a message onto the Redis queue.
 
@@ -266,15 +272,15 @@ Let's trace a single strategy through every file, so the layers stop being abstr
 
 4. **Prices (data).** `get_provider().history("AAPL", days=...)` returns 40-ish closes — from Yahoo if it's up, from the synthetic fallback if not ([`feeder/providers.py`](../backend/feeder/providers.py)).
 
-5. **The number (computation).** `compute_indicator("Z_SCORE", closes, {"window": 20})` calls the pure `_zscore_series` ([`feeder/indicators.py`](../backend/feeder/indicators.py)) and returns, say, `value = −2.31`.
+5. **The number (computation).** `evaluate_condition_tree(tree, closes)` walks the strategy's condition tree ([`feeder/conditions.py`](../backend/feeder/conditions.py)); for this one-leaf rule that means `compute_indicator("Z_SCORE", closes, {"window": 20})`, which calls the pure `_zscore_series` ([`feeder/indicators.py`](../backend/feeder/indicators.py)) and returns, say, `value = −2.31`.
 
-6. **The condition.** `evaluate_condition("<", −2.31, ..., −2.0)` → `True`. It cleared the quant gate.
+6. **The condition.** The leaf compares `−2.31 < −2.0` → `True`, and the evaluated tree (every leaf with its concrete values) is kept as the alert's audit trail. It cleared the quant gate.
 
 7. **The AI (Chapter 7).** `ClaudeClient().assess(...)` reads the value and some headlines and returns a `verdict` with `trigger=True` and a rationale.
 
 8. **The record (persistence).** Inside `transaction.atomic()`, an `Alert` row is created — scoped to *your* workspace — and `last_triggered_at` is stamped, together, atomically.
 
-9. **The knock on the door (delivery).** `deliver_alert(alert, strategy)` ([`strategies/delivery.py`](../backend/engine/delivery.py)) pushes over the WebSocket (your browser pops a toast) and sends the email. Each result is recorded in `alert.delivery`.
+9. **The knock on the door (delivery).** `deliver_alert(alert, strategy)` ([`engine/delivery.py`](../backend/engine/delivery.py)) pushes over the WebSocket (your browser pops a toast) and sends the email. Each result is recorded in `alert.delivery`.
 
 Nine steps, six files, five layers — and *you* did none of it. That's the difference between a formula and a system.
 

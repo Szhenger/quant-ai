@@ -13,15 +13,14 @@ import json
 import logging
 import time
 
-from asgiref.sync import async_to_sync
 from celery import shared_task
-from channels.layers import get_channel_layer
 from django.conf import settings
 from django.core.mail import send_mail
 from django.db import transaction
 from rest_framework.renderers import JSONRenderer
 
 from identity.validators import UnresolvableWebhookHostError, ensure_public_webhook_url
+from .events import send as send_to_workspace
 from .serializers import AlertSerializer
 
 logger = logging.getLogger(__name__)
@@ -94,13 +93,8 @@ def _record(alert_id: str, channel: str, result: dict) -> None:
 
 def _send_in_app(alert) -> dict:
     try:
-        layer = get_channel_layer()
-        if layer is None:
+        if not send_to_workspace(alert.workspace_id, "alert.message", _payload(alert)):
             return {"ok": False, "detail": "no channel layer configured"}
-        async_to_sync(layer.group_send)(
-            f"ws_{alert.workspace_id}",
-            {"type": "alert.message", "data": _payload(alert)},
-        )
         return {"ok": True}
     except Exception as exc:  # noqa: BLE001
         logger.warning("WS delivery failed: %s", exc)
@@ -169,7 +163,7 @@ def _send_webhook(alert) -> dict:
         # When configured, all webhook egress goes through a filtering proxy —
         # the only complete answer to validate-then-connect DNS rebinding.
         post_kwargs = {"timeout": 5, "allow_redirects": False}
-        proxy = getattr(settings, "WEBHOOK_EGRESS_PROXY", "")
+        proxy = settings.WEBHOOK_EGRESS_PROXY
         if proxy:
             post_kwargs["proxies"] = {"http": proxy, "https": proxy}
         resp = requests.post(strategy.webhook_url, data=body, headers=headers,
@@ -203,18 +197,13 @@ def notify_strategy_failed(strategy) -> None:
         "Reactivate it from the console once the cause is resolved."
     )
     try:
-        layer = get_channel_layer()
-        if layer is not None:
-            async_to_sync(layer.group_send)(
-                f"ws_{strategy.workspace_id}",
-                {"type": "strategy.status", "data": {
-                    "strategy_id": str(strategy.id),
-                    "name": strategy.name,
-                    "ticker": strategy.ticker,
-                    "status": "failed",
-                    "message": text,
-                }},
-            )
+        send_to_workspace(strategy.workspace_id, "strategy.status", {
+            "strategy_id": str(strategy.id),
+            "name": strategy.name,
+            "ticker": strategy.ticker,
+            "status": "failed",
+            "message": text,
+        })
     except Exception as exc:  # noqa: BLE001
         logger.warning("WS strategy-failed notification failed: %s", exc)
     try:
